@@ -5,11 +5,58 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertCircle } from "lucide-react";
 
+// Traffic light simulation states
+type TrafficLightColor = "red" | "yellow" | "green";
+
+interface TrafficLightState {
+  color: TrafficLightColor;
+  countdown: number;
+}
+
 const TrafficMap = () => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const [mapboxToken, setMapboxToken] = useState("");
   const [tokenSubmitted, setTokenSubmitted] = useState(false);
+  
+  // Traffic light states for both intersections
+  const [light1, setLight1] = useState<TrafficLightState>({ color: "green", countdown: 45 });
+  const [light2, setLight2] = useState<TrafficLightState>({ color: "red", countdown: 52 });
+
+  // Simulate traffic light cycles
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLight1((prev) => {
+        if (prev.countdown > 1) {
+          return { ...prev, countdown: prev.countdown - 1 };
+        }
+        // Cycle through lights
+        if (prev.color === "green") return { color: "yellow", countdown: 5 };
+        if (prev.color === "yellow") return { color: "red", countdown: 50 };
+        return { color: "green", countdown: 45 };
+      });
+
+      setLight2((prev) => {
+        if (prev.countdown > 1) {
+          return { ...prev, countdown: prev.countdown - 1 };
+        }
+        // Cycle through lights (offset from light1)
+        if (prev.color === "green") return { color: "yellow", countdown: 5 };
+        if (prev.color === "yellow") return { color: "red", countdown: 45 };
+        return { color: "green", countdown: 50 };
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  const getColorHex = (color: TrafficLightColor) => {
+    switch (color) {
+      case "red": return "#ff0066";
+      case "yellow": return "#ffcc00";
+      case "green": return "#00ff88";
+    }
+  };
 
   useEffect(() => {
     if (!mapContainer.current || !mapboxToken || !tokenSubmitted) return;
@@ -32,26 +79,70 @@ const TrafficMap = () => {
       const kiaracondong = [107.6385, -6.9297]; // Simpang Samsat Kiaracondong
       const buahBatu = [107.6338, -6.9432]; // Simpang Buah Batu
 
-      // Add markers for intersections
-      const marker1 = new mapboxgl.Marker({
-        color: "#00d4ff",
-        scale: 1.2,
-      })
+      // Create custom marker elements with traffic light indicators
+      const createMarkerElement = (lightId: number) => {
+        const el = document.createElement("div");
+        el.className = "custom-marker";
+        el.id = `marker-${lightId}`;
+        el.style.width = "60px";
+        el.style.height = "80px";
+        el.style.position = "relative";
+        
+        el.innerHTML = `
+          <div style="position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center;">
+            <div style="
+              width: 50px;
+              height: 50px;
+              background: rgba(0, 212, 255, 0.2);
+              border: 2px solid #00d4ff;
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              box-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+            ">
+              <div id="light-indicator-${lightId}" style="
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                background: #00ff88;
+                box-shadow: 0 0 15px currentColor;
+              "></div>
+            </div>
+            <div id="countdown-${lightId}" style="
+              margin-top: 4px;
+              background: rgba(10, 14, 26, 0.95);
+              border: 1px solid rgba(0, 212, 255, 0.3);
+              border-radius: 4px;
+              padding: 2px 8px;
+              font-size: 14px;
+              font-weight: bold;
+              font-family: 'Inter', monospace;
+              color: white;
+              box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+            ">45</div>
+          </div>
+        `;
+        
+        return el;
+      };
+
+      // Add markers with custom elements
+      const marker1Element = createMarkerElement(1);
+      const marker1 = new mapboxgl.Marker({ element: marker1Element })
         .setLngLat(kiaracondong as [number, number])
         .setPopup(
-          new mapboxgl.Popup().setHTML(
+          new mapboxgl.Popup({ offset: 25 }).setHTML(
             '<div class="text-center p-2"><strong>Simpang Samsat Kiaracondong</strong><br/><span class="text-green-400">Status: Flowing</span></div>'
           )
         )
         .addTo(map.current);
 
-      const marker2 = new mapboxgl.Marker({
-        color: "#00d4ff",
-        scale: 1.2,
-      })
+      const marker2Element = createMarkerElement(2);
+      const marker2 = new mapboxgl.Marker({ element: marker2Element })
         .setLngLat(buahBatu as [number, number])
         .setPopup(
-          new mapboxgl.Popup().setHTML(
+          new mapboxgl.Popup({ offset: 25 }).setHTML(
             '<div class="text-center p-2"><strong>Simpang Buah Batu</strong><br/><span class="text-cyan-400">Status: Moderate</span></div>'
           )
         )
@@ -110,6 +201,27 @@ const TrafficMap = () => {
       map.current?.remove();
     };
   }, [mapboxToken, tokenSubmitted]);
+
+  // Update traffic light indicators in real-time
+  useEffect(() => {
+    if (!tokenSubmitted) return;
+
+    const updateIndicator = (lightId: number, state: TrafficLightState) => {
+      const indicator = document.getElementById(`light-indicator-${lightId}`);
+      const countdown = document.getElementById(`countdown-${lightId}`);
+      
+      if (indicator) {
+        indicator.style.background = getColorHex(state.color);
+      }
+      if (countdown) {
+        countdown.textContent = state.countdown.toString();
+        countdown.style.color = getColorHex(state.color);
+      }
+    };
+
+    updateIndicator(1, light1);
+    updateIndicator(2, light2);
+  }, [light1, light2, tokenSubmitted]);
 
   if (!tokenSubmitted) {
     return (

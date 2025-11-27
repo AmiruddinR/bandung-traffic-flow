@@ -1,7 +1,14 @@
-import { Activity, AlertCircle, CheckCircle, Clock } from "lucide-react";
+import { Activity, AlertCircle, CheckCircle, Clock, Video } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { useEffect, useState } from "react";
 
 const StatusPanel = () => {
+  const [time, setTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const trafficData = [
     {
       id: 1,
@@ -52,6 +59,64 @@ const StatusPanel = () => {
       <div>
         <h2 className="text-xl font-bold text-foreground mb-2">Real-Time Status</h2>
         <p className="text-sm text-muted-foreground">Live traffic monitoring</p>
+      </div>
+
+      {/* CCTV Feeds Section */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Video className="w-4 h-4 text-primary" />
+          <h3 className="text-sm font-bold text-foreground">CCTV Live Feeds</h3>
+        </div>
+        
+        <Card className="bg-secondary border-glow p-3 space-y-2">
+          <div className="relative aspect-video bg-background/50 rounded overflow-hidden border border-primary/30">
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-center">
+                <Video className="w-8 h-8 text-primary/50 mx-auto mb-2" />
+                <p className="text-xs text-muted-foreground">CCTV Cam 1: Samsat</p>
+              </div>
+            </div>
+            <div className="absolute top-2 left-2 bg-destructive/90 backdrop-blur-sm px-2 py-1 rounded flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+              <span className="text-[10px] font-bold text-white">LIVE</span>
+            </div>
+            <div className="absolute top-2 right-2 bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
+              <span className="text-[10px] font-mono text-foreground">
+                {time.toLocaleTimeString()}
+              </span>
+            </div>
+            {/* Simulated video feed effect */}
+            <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-50" />
+            <div className="absolute inset-0" style={{
+              backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 212, 255, 0.03) 2px, rgba(0, 212, 255, 0.03) 4px)',
+            }} />
+          </div>
+        </Card>
+
+        <Card className="bg-secondary border-glow p-3 space-y-2">
+          <div className="relative aspect-video bg-background/50 rounded overflow-hidden border border-primary/30">
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-center">
+                <Video className="w-8 h-8 text-primary/50 mx-auto mb-2" />
+                <p className="text-xs text-muted-foreground">CCTV Cam 2: Buah Batu</p>
+              </div>
+            </div>
+            <div className="absolute top-2 left-2 bg-destructive/90 backdrop-blur-sm px-2 py-1 rounded flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+              <span className="text-[10px] font-bold text-white">LIVE</span>
+            </div>
+            <div className="absolute top-2 right-2 bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
+              <span className="text-[10px] font-mono text-foreground">
+                {time.toLocaleTimeString()}
+              </span>
+            </div>
+            {/* Simulated video feed effect */}
+            <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-50" />
+            <div className="absolute inset-0" style={{
+              backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 212, 255, 0.03) 2px, rgba(0, 212, 255, 0.03) 4px)',
+            }} />
+          </div>
+        </Card>
       </div>
 
       <div className="space-y-4">
