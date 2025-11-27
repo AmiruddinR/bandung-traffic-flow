@@ -3,7 +3,8 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 // --- MASUKKAN TOKEN MAPBOX ANDA DI SINI ---
-const MAPBOX_TOKEN = "pk.eyJ1IjoiYW1pcnVkZGluciIsImEiOiJjbWlndXkwOHMwYnlmM2twbGd4NTZtcDJqIn0.XeXOdO7CygNuVKhv7W8FnA"; // Ganti tulisan ini dengan token asli Anda (pk....)
+// Gunakan Import Meta Env
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN; // Ganti tulisan ini dengan token asli Anda (pk....)
 // ------------------------------------------
 
 type TrafficLightColor = "red" | "yellow" | "green";
