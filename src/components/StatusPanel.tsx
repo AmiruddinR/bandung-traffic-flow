@@ -1,14 +1,53 @@
-import { Activity, AlertCircle, CheckCircle, Clock, Video } from "lucide-react";
+import { Activity, AlertCircle, CheckCircle, Clock, Video, Settings2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useEffect, useState } from "react";
+import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { toast } from "@/hooks/use-toast";
 
 const StatusPanel = () => {
   const [time, setTime] = useState(new Date());
+  const [manualOverride, setManualOverride] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  const handleOverrideToggle = (checked: boolean) => {
+    setManualOverride(checked);
+    toast({
+      title: checked ? "Manual Override Enabled" : "Manual Override Disabled",
+      description: checked
+        ? "System control transferred to operator."
+        : "AI adaptive control resumed.",
+      variant: checked ? "destructive" : "default",
+    });
+  };
+
+  const handleForceRed = () => {
+    toast({
+      title: "Force Red Activated",
+      description: "All traffic lights set to RED. Emergency stop initiated.",
+      variant: "destructive",
+    });
+  };
+
+  const handleForceGreen = () => {
+    toast({
+      title: "Force Green Activated",
+      description: "Selected intersection set to GREEN. Use with caution.",
+    });
+  };
+
+  const handleResetAI = () => {
+    setManualOverride(false);
+    toast({
+      title: "AI Mode Reset",
+      description: "Adaptive AI control restored. System recalibrating...",
+    });
+  };
   const trafficData = [
     {
       id: 1,
@@ -176,6 +215,64 @@ const StatusPanel = () => {
             <span className="text-xs text-muted-foreground">Last Update</span>
             <span className="text-xs font-semibold text-foreground">2 sec ago</span>
           </div>
+        </div>
+      </div>
+
+      {/* Manual Override Section */}
+      <div className="pt-4 border-t border-border/50">
+        <div className="flex items-center gap-2 mb-3">
+          <Settings2 className="w-4 h-4 text-primary" />
+          <h3 className="text-sm font-bold text-foreground">Manual Override</h3>
+        </div>
+        
+        <div className="bg-secondary/50 border border-border/30 rounded-lg p-3 space-y-4">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="override-switch" className="text-xs font-medium text-foreground">
+              Operator Control
+            </Label>
+            <Switch
+              id="override-switch"
+              checked={manualOverride}
+              onCheckedChange={handleOverrideToggle}
+            />
+          </div>
+
+          {manualOverride && (
+            <div className="space-y-2 pt-2 border-t border-border/30 animate-fade-in">
+              <p className="text-[10px] text-destructive font-semibold uppercase mb-2">
+                ⚠ Emergency Controls Active
+              </p>
+              <Button
+                onClick={handleForceRed}
+                variant="destructive"
+                size="sm"
+                className="w-full text-xs"
+              >
+                Force Red
+              </Button>
+              <Button
+                onClick={handleForceGreen}
+                size="sm"
+                className="w-full text-xs bg-success hover:bg-success/90 text-success-foreground"
+              >
+                Force Green
+              </Button>
+              <Button
+                onClick={handleResetAI}
+                variant="outline"
+                size="sm"
+                className="w-full text-xs border-primary text-primary hover:bg-primary/10"
+              >
+                Reset AI Mode
+              </Button>
+            </div>
+          )}
+
+          {!manualOverride && (
+            <p className="text-[10px] text-muted-foreground italic">
+              AI adaptive control is active
+            </p>
+          )}
         </div>
       </div>
     </aside>

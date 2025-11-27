@@ -2,6 +2,7 @@ import Sidebar from "@/components/Sidebar";
 import TrafficMap from "@/components/TrafficMap";
 import StatusPanel from "@/components/StatusPanel";
 import QueueDensityChart from "@/components/QueueDensityChart";
+import AIDecisionLog from "@/components/AIDecisionLog";
 
 const Index = () => {
   return (
@@ -11,8 +12,13 @@ const Index = () => {
         <div className="flex-1 relative">
           <TrafficMap />
         </div>
-        <div className="h-[400px] border-t border-border/50 overflow-y-auto p-4 bg-background">
-          <QueueDensityChart />
+        <div className="h-[400px] border-t border-border/50 overflow-hidden flex">
+          <div className="flex-1 p-4 bg-background overflow-y-auto">
+            <QueueDensityChart />
+          </div>
+          <div className="w-96 p-4 bg-background border-l border-border/50">
+            <AIDecisionLog />
+          </div>
         </div>
       </div>
       <StatusPanel />
