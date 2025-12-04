@@ -22,7 +22,6 @@ const TrafficMap = () => {
 
   const [mapboxToken, setMapboxToken] = useState(HARDCODED_TOKEN);
   const [tokenSubmitted, setTokenSubmitted] = useState(true);
-  });
   const [isLoading, setIsLoading] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   
