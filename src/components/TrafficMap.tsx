@@ -18,7 +18,7 @@ const MAPBOX_TOKEN_KEY = "traffic_dashboard_mapbox_token";
 const TrafficMap = () => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
-  const HARDCODED_TOKEN = "pk.eyJ1IjoibG92YWJsZSIsImEiOiJjbHmxb3J6a3MwMGZ4MmpueDdid3J5aG5jIn0.123456789"; 
+  const HARDCODED_TOKEN = "pk.eyJ1IjoiYW1pcnVkZGluciIsImEiOiJjbWlndXkwOHMwYnlmM2twbGd4NTZtcDJqIn0.XeXOdO7CygNuVKhv7W8FnA"; 
 
   const [mapboxToken, setMapboxToken] = useState(HARDCODED_TOKEN);
   const [tokenSubmitted, setTokenSubmitted] = useState(true);
