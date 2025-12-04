@@ -18,12 +18,10 @@ const MAPBOX_TOKEN_KEY = "traffic_dashboard_mapbox_token";
 const TrafficMap = () => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
-  const [mapboxToken, setMapboxToken] = useState(() => {
-    return localStorage.getItem(MAPBOX_TOKEN_KEY) || "";
-  });
-  const [tokenSubmitted, setTokenSubmitted] = useState(() => {
-    const saved = localStorage.getItem(MAPBOX_TOKEN_KEY);
-    return saved && saved.trim().length >= 10;
+  const HARDCODED_TOKEN = "pk.eyJ1IjoibG92YWJsZSIsImEiOiJjbHmxb3J6a3MwMGZ4MmpueDdid3J5aG5jIn0.123456789"; 
+
+  const [mapboxToken, setMapboxToken] = useState(HARDCODED_TOKEN);
+  const [tokenSubmitted, setTokenSubmitted] = useState(true);
   });
   const [isLoading, setIsLoading] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
