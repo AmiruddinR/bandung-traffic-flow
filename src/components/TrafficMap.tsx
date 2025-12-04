@@ -59,9 +59,10 @@ const TrafficMap = () => {
   };
 
   useEffect(() => {
-    if (!mapContainer.current || !mapboxToken || !tokenSubmitted) return;
+    if (!mapContainer.current || !tokenSubmitted) return;
+    if (!mapboxToken || mapboxToken.trim().length < 10) return;
 
-    mapboxgl.accessToken = mapboxToken;
+    mapboxgl.accessToken = mapboxToken.trim();
 
     // Initialize map centered on Bandung
     map.current = new mapboxgl.Map({
