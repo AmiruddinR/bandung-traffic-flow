@@ -13,7 +13,43 @@ interface TrafficLightState {
   countdown: number;
 }
 
+// Tipe data untuk status lengan
+type LaneStatus = "red" | "yellow" | "green";
+
+// State awal
+const [laneData, setLaneData] = useState({
+  samsat: {
+    north: "red" as LaneStatus,
+    south: "green" as LaneStatus,
+    east: "red" as LaneStatus,
+    west: "green" as LaneStatus,
+  },
+  buahbatu: {
+    north: "green" as LaneStatus,
+    south: "red" as LaneStatus,
+    east: "green" as LaneStatus,
+    west: "red" as LaneStatus,
+  }
+});
+
 const MAPBOX_TOKEN_KEY = "traffic_dashboard_mapbox_token";
+// Helper: Membuat koordinat garis lengan simpang
+// center: [lng, lat]
+// radius: panjang lengan dalam derajat (0.002 kira-kira 200 meter)
+
+const createArmsGeoJSON = (center: number[], radius: number = 0.002) => {
+  const [lng, lat] = center;
+  
+  // Koordinat ujung jalan
+  const arms = {
+    north: [[lng, lat], [lng, lat + radius]], // Dari Pusat ke Utara
+    south: [[lng, lat], [lng, lat - radius]], // Dari Pusat ke Selatan
+    east:  [[lng, lat], [lng + radius, lat]], // Dari Pusat ke Timur
+    west:  [[lng, lat], [lng - radius, lat]], // Dari Pusat ke Barat
+  };
+
+  return arms;
+};
 
 const TrafficMap = () => {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -160,6 +196,98 @@ const TrafficMap = () => {
             
             return el;
           };
+
+          map.current.on("load", () => {
+            setIsLoading(false);
+            if (!map.current) return;
+        
+            const samsatCenter = [107.6385, -6.9297];
+            const bubatCenter = [107.6338, -6.9432];
+        
+            // 1. Generate Geometri Lengan
+            const samsatGeom = createArmsGeoJSON(samsatCenter, 0.0025);
+            const bubatGeom = createArmsGeoJSON(bubatCenter, 0.0025);
+        
+            // 2. Siapkan Feature Collection Kosong (Nanti diisi lewat useEffect update)
+            // Kita inisialisasi dengan data default agar langsung tampil
+            const initialFeatures = [
+                // --- SAMSAT ---
+                { type: "Feature", properties: { id: "samsat-north", color: "red" }, geometry: { type: "LineString", coordinates: samsatGeom.north }},
+                { type: "Feature", properties: { id: "samsat-south", color: "green" }, geometry: { type: "LineString", coordinates: samsatGeom.south }},
+                { type: "Feature", properties: { id: "samsat-east", color: "red" }, geometry: { type: "LineString", coordinates: samsatGeom.east }},
+                { type: "Feature", properties: { id: "samsat-west", color: "green" }, geometry: { type: "LineString", coordinates: samsatGeom.west }},
+                
+                // --- BUAH BATU ---
+                { type: "Feature", properties: { id: "bubat-north", color: "green" }, geometry: { type: "LineString", coordinates: bubatGeom.north }},
+                { type: "Feature", properties: { id: "bubat-south", color: "red" }, geometry: { type: "LineString", coordinates: bubatGeom.south }},
+                { type: "Feature", properties: { id: "bubat-east", color: "green" }, geometry: { type: "LineString", coordinates: bubatGeom.east }},
+                { type: "Feature", properties: { id: "bubat-west", color: "red" }, geometry: { type: "LineString", coordinates: bubatGeom.west }},
+            ];
+        
+            // 3. Tambahkan Source
+            map.current.addSource("traffic-arms", {
+                type: "geojson",
+                data: {
+                    type: "FeatureCollection",
+                    features: initialFeatures as any
+                }
+            });
+        
+            // 4. Tambahkan Layer dengan "ZOOM INTERPOLATION" (Solusi Zoom)
+            map.current.addLayer({
+                id: "traffic-arms-layer",
+                type: "line",
+                source: "traffic-arms",
+                layout: {
+                    "line-join": "round",
+                    "line-cap": "round"
+                },
+                paint: {
+                    // SOLUSI ZOOM:
+                    // Lebar garis menyesuaikan zoom level.
+                    // Saat zoom 10 (jauh), tebal 2px. Saat zoom 15 (dekat), tebal 10px.
+                    "line-width": [
+                        "interpolate", ["linear"], ["zoom"],
+                        10, 3,
+                        15, 12
+                    ],
+                    // Warna dinamis berdasarkan properti 'color' dari data
+                    "line-color": [
+                        "match",
+                        ["get", "color"],
+                        "red", "#ef4444",   // Merah Tailwind
+                        "yellow", "#eab308", // Kuning Tailwind
+                        "green", "#22c55e",  // Hijau Tailwind
+                        "#888888" // Default
+                    ],
+                    "line-opacity": 0.8
+                }
+            });
+        
+            // Opsional: Tambahkan panah arah (Layer Symbol) di atas garis
+            map.current.addLayer({
+                id: "traffic-arrows",
+                type: "symbol",
+                source: "traffic-arms",
+                layout: {
+                    "symbol-placement": "line",
+                    "symbol-spacing": 100,
+                    "text-field": "▶", 
+                    "text-size": [
+                         "interpolate", ["linear"], ["zoom"],
+                         12, 10,
+                         16, 20
+                    ],
+                    "text-keep-upright": false,
+                    "text-anchor": "center"
+                },
+                paint: {
+                    "text-color": "#ffffff",
+                    "text-halo-color": "#000000",
+                    "text-halo-width": 1
+                }
+            });
+        });
 
           const marker1Element = createMarkerElement(1);
           new mapboxgl.Marker({ element: marker1Element, anchor: 'center' })
