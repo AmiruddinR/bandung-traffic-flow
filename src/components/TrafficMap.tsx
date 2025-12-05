@@ -5,33 +5,56 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertCircle, Loader2 } from "lucide-react";
 
-// --- HELPERS ---
-const createIntersectionFeature = (
+// --- HELPER: ROTASI GEOMETRI ---
+// Fungsi ini membuat garis lengan simpang yang bisa DI-ROTASI agar pas dengan jalan
+const createRotatedArms = (
   center: [number, number], 
   idPrefix: string, 
-  radius: number = 0.002
+  radius: number = 0.002, // Panjang lengan (~200m)
+  rotationDegrees: number = 0 // Sudut putar (searah jarum jam)
 ) => {
-  const [lng, lat] = center;
+  const [cx, cy] = center;
+  
+  // Konversi derajat ke radian
+  const rad = (rotationDegrees * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+
+  // Fungsi putar titik (relatif terhadap center)
+  const rotatePoint = (dx: number, dy: number) => {
+    return [
+      cx + (dx * cos - dy * sin), 
+      cy + (dx * sin + dy * cos)
+    ];
+  };
+
+  // Koordinat relatif lengan (sebelum diputar)
+  // dx = longitude offset, dy = latitude offset
+  const northEnd = rotatePoint(0, radius);
+  const southEnd = rotatePoint(0, -radius);
+  const eastEnd  = rotatePoint(radius, 0);
+  const westEnd  = rotatePoint(-radius, 0);
+
   return [
     {
       type: "Feature",
       properties: { id: `${idPrefix}-north`, dir: "Utara" },
-      geometry: { type: "LineString", coordinates: [[lng, lat], [lng, lat + radius]] }
+      geometry: { type: "LineString", coordinates: [[cx, cy], northEnd] }
     },
     {
       type: "Feature",
       properties: { id: `${idPrefix}-south`, dir: "Selatan" },
-      geometry: { type: "LineString", coordinates: [[lng, lat], [lng, lat - radius]] }
+      geometry: { type: "LineString", coordinates: [[cx, cy], southEnd] }
     },
     {
       type: "Feature",
       properties: { id: `${idPrefix}-east`, dir: "Timur" },
-      geometry: { type: "LineString", coordinates: [[lng, lat], [lng + radius, lat]] }
+      geometry: { type: "LineString", coordinates: [[cx, cy], eastEnd] }
     },
     {
       type: "Feature",
       properties: { id: `${idPrefix}-west`, dir: "Barat" },
-      geometry: { type: "LineString", coordinates: [[lng, lat], [lng - radius, lat]] }
+      geometry: { type: "LineString", coordinates: [[cx, cy], westEnd] }
     }
   ];
 };
@@ -48,6 +71,7 @@ const TrafficMap = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   
+  // State warna jalur (Simulasi)
   const [laneColors, setLaneColors] = useState<Record<string, string>>({
     "samsat-north": "red", "samsat-south": "green", "samsat-east": "yellow", "samsat-west": "green",
     "bubat-north": "green", "bubat-south": "red", "bubat-east": "green", "bubat-west": "red",
@@ -65,19 +89,21 @@ const TrafficMap = () => {
     try {
       mapboxgl.accessToken = mapboxToken.trim();
 
+      // --- SETTING PETA VERTIKAL (LANDAI) ---
       map.current = new mapboxgl.Map({
         container: mapContainer.current,
         style: "mapbox://styles/mapbox/dark-v11",
-        center: [107.636, -6.935],
-        zoom: 13.5,
-        pitch: 45, // 3D view
+        // Titik tengah antara Samsat & Bubat
+        center: [107.6375, -6.9465], 
+        zoom: 14.5,
+        pitch: 0,   // PENTING: 0 agar tegak lurus (2D/Landai)
+        bearing: 0, // Utara selalu di atas
         attributionControl: false,
       });
 
       map.current.on("error", (e) => {
-        console.error("Mapbox Error:", e);
         if (e.error?.message?.includes("forbidden") || e.error?.message?.includes("Unauthorized")) {
-           setMapError("Token Invalid atau Ditolak.");
+           setMapError("Token Invalid.");
            setIsLoading(false);
         }
       });
@@ -86,58 +112,90 @@ const TrafficMap = () => {
         setIsLoading(false);
         if (!map.current) return;
 
-        const kiaracondong = [107.6466, -6.9448] as [number, number]; // Pertemuan Jl. Soekarno Hatta & Ibrahim Adjie
-        const buahBatu = [107.6338, -6.9475] as [number, number];     // Pertemuan Jl. Soekarno Hatta & Buah Batu
-        // OPTIONAL: Sesuaikan panjang lengan simpang (radius)
-        // 0.003 derajat kira-kira 300 meter. Jika terlalu panjang, ubah ke 0.0015 atau 0.002
-        const samsatFeatures = createIntersectionFeature(kiaracondong, "samsat", 0.0025);
-        const bubatFeatures = createIntersectionFeature(buahBatu, "bubat", 0.0025);
-        // 1. Setup GeoJSON Data
-        const allFeatures = [
-          ...createIntersectionFeature(kiaracondong, "samsat", 0.003),
-          ...createIntersectionFeature(buahBatu, "bubat", 0.003)
-        ];
+        // --- KOORDINAT BARU (Konversi dari DMS ke Decimal) ---
+        // Simpang Samsat: 6°56'43.1"S 107°38'30.8"E
+        const samsatCoords = [107.641889, -6.945306] as [number, number];
+        
+        // Simpang Buah Batu: 6°56'52.9"S 107°38'00.3"E
+        const bubatCoords = [107.633417, -6.948028] as [number, number];
+
+        // --- GENERATE GEOMETRI DENGAN ROTASI ---
+        // Rotasi -12 derajat agar lurus dengan Jl. Soekarno Hatta
+        const samsatFeatures = createRotatedArms(samsatCoords, "samsat", 0.0025, -12);
+        const bubatFeatures = createRotatedArms(bubatCoords, "bubat", 0.0025, -12);
+
+        const allFeatures = [...samsatFeatures, ...bubatFeatures];
 
         map.current.addSource("traffic-lanes", {
           type: "geojson",
           data: { type: "FeatureCollection", features: allFeatures as any }
         });
 
-        // 2. Add Line Layer (Jalur)
+        // LAYER JALUR (GARIS)
         map.current.addLayer({
           id: "lanes-layer",
           type: "line",
           source: "traffic-lanes",
           layout: { "line-join": "round", "line-cap": "round" },
           paint: {
-            // Lebar garis responsif terhadap Zoom (Fix tampilan titik kecil/besar)
+            // Lebar garis dinamis
             "line-width": [
               "interpolate", ["linear"], ["zoom"],
-              12, 3,  // Zoom jauh: Tipis
-              15, 8,  // Zoom sedang
-              18, 20  // Zoom dekat: Tebal
+              12, 3,
+              18, 25 // Makin zoom in, makin tebal
             ],
+            // Warna Default (nanti ditimpa useEffect update)
             "line-color": "#555", 
             "line-opacity": 0.8
           }
         });
 
-        // 3. Add Arrow Layer (Panah Arah)
+        // LAYER PANAH ARAH
         map.current.addLayer({
           id: "lanes-arrow",
           type: "symbol",
           source: "traffic-lanes",
           layout: {
             "symbol-placement": "line",
-            "text-field": "▶",
-            "text-size": 14,
-            "symbol-spacing": 100,
-            "text-keep-upright": false
+            "text-field": "▶", // Karakter panah
+            "text-size": 16,
+            "symbol-spacing": 80,
+            "text-keep-upright": false 
           },
           paint: { "text-color": "#fff", "text-halo-color": "#000", "text-halo-width": 2 }
         });
 
-        // PENTING: Resize map setelah load agar tidak blank
+        // LABEL NAMA SIMPANG
+        map.current.addSource("labels", {
+          type: "geojson",
+          data: {
+              type: "FeatureCollection",
+              features: [
+                  { type: "Feature", geometry: { type: "Point", coordinates: samsatCoords }, properties: { title: "Samsat Kiaracondong" } },
+                  { type: "Feature", geometry: { type: "Point", coordinates: bubatCoords }, properties: { title: "Buah Batu" } }
+              ]
+          }
+        });
+        
+        map.current.addLayer({
+            id: "label-layer",
+            type: "symbol",
+            source: "labels",
+            layout: {
+                "text-field": ["get", "title"],
+                "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+                "text-size": 13,
+                "text-offset": [0, -1.5], // Label di atas titik
+                "text-anchor": "bottom"
+            },
+            paint: {
+                "text-color": "#ffffff",
+                "text-halo-color": "#000000",
+                "text-halo-width": 3
+            }
+        });
+
+        // Resize Fix
         map.current.resize();
         setTimeout(() => map.current?.resize(), 500);
       });
@@ -145,7 +203,7 @@ const TrafficMap = () => {
       map.current.addControl(new mapboxgl.NavigationControl(), "top-right");
 
     } catch (error) {
-      console.error("Map initialization error:", error);
+      console.error("Map Error:", error);
       setMapError("Gagal memuat peta.");
       setIsLoading(false);
     }
@@ -156,11 +214,11 @@ const TrafficMap = () => {
     };
   }, [mapboxToken, tokenSubmitted]);
 
-  // Effect untuk Update Warna Real-time
+  // Update Warna Real-time
   useEffect(() => {
     if (!map.current?.getLayer("lanes-layer")) return;
     
-    // Timer Simulasi Perubahan Warna
+    // Interval Simulasi
     const interval = setInterval(() => {
         setLaneColors(prev => ({
             ...prev,
@@ -169,14 +227,14 @@ const TrafficMap = () => {
         }));
     }, 2000);
 
-    // Update Paint Property Mapbox
+    // Apply Colors
     const matchExpression: any[] = ["match", ["get", "id"]];
     Object.entries(laneColors).forEach(([id, color]) => {
         matchExpression.push(id); 
         const hex = color === "red" ? "#ef4444" : color === "yellow" ? "#eab308" : "#22c55e";
         matchExpression.push(hex); 
     });
-    matchExpression.push("#888"); // Fallback color
+    matchExpression.push("#888");
 
     if (map.current.isStyleLoaded()) {
       map.current.setPaintProperty("lanes-layer", "line-color", matchExpression);
@@ -185,69 +243,29 @@ const TrafficMap = () => {
     return () => clearInterval(interval);
   }, [laneColors]); 
 
-  // --- RENDER ---
-  // Ganti seluruh block return di bawah dengan ini:
-
+  // --- RENDER UI ---
   return (
     <div className="flex-1 relative w-full h-full min-h-[500px] overflow-hidden rounded-xl border border-border/50 shadow-sm">
-      {/* 1. CONTAINER PETA */}
       <div 
         ref={mapContainer} 
         className="absolute inset-0 w-full h-full"
       />
       
-      {/* 2. LOADING STATE */}
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-50">
-          <div className="flex flex-col items-center gap-3">
-            <Loader2 className="w-10 h-10 text-primary animate-spin" />
-            <span className="text-sm font-medium text-muted-foreground">Memuat Peta Bandung...</span>
-          </div>
+          <Loader2 className="w-10 h-10 text-primary animate-spin" />
         </div>
       )}
 
-      {/* 3. ERROR STATE */}
-      {mapError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-background/90 z-50 p-6">
-          <div className="flex flex-col items-center gap-2 text-destructive text-center">
-            <AlertCircle className="w-12 h-12" />
-            <h3 className="font-bold text-lg">Gagal Memuat Peta</h3>
-            <p className="text-sm text-muted-foreground">{mapError}</p>
-            <button 
-              onClick={() => window.location.reload()} 
-              className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90"
-            >
-              Coba Lagi
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 4. LEGENDA WARNA (Floating UI) - Pastikan z-index tinggi (z-40) */}
-      <div className="absolute bottom-5 left-5 z-40 bg-card/95 backdrop-blur-md border border-border p-4 rounded-lg shadow-lg max-w-[200px]">
-        <h4 className="text-xs font-bold text-foreground mb-3 uppercase tracking-wider">Status Kepadatan</h4>
-        <div className="space-y-2.5">
-          <div className="flex items-center gap-3">
-            <span className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse"></span>
-            <span className="text-xs text-muted-foreground font-medium">Lancar (Flowing)</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="w-3 h-3 rounded-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.6)]"></span>
-            <span className="text-xs text-muted-foreground font-medium">Padat (Moderate)</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]"></span>
-            <span className="text-xs text-muted-foreground font-medium">Macet (Congested)</span>
-          </div>
+      {/* LEGENDA WARNA (Floating) */}
+      <div className="absolute bottom-5 left-5 z-40 bg-card/95 backdrop-blur-md border border-border p-4 rounded-lg shadow-lg">
+        <h4 className="text-xs font-bold mb-2 uppercase">Status Lalu Lintas</h4>
+        <div className="space-y-2 text-xs">
+          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span> Lancar</div>
+          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-yellow-500"></span> Padat</div>
+          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-red-500"></span> Macet</div>
         </div>
       </div>
-      
-      {/* 5. INFO SINKRONISASI (Pojok Kanan Atas) */}
-      <div className="absolute top-5 right-5 z-40 bg-card/95 backdrop-blur-md border border-border px-4 py-2 rounded-full shadow-lg flex items-center gap-2">
-         <div className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
-         <span className="text-xs font-semibold text-foreground">AI Sync Active</span>
-      </div>
-
     </div>
   );
 };
