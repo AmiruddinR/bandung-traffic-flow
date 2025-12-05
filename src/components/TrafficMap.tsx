@@ -5,58 +5,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertCircle, Loader2 } from "lucide-react";
 
-// --- HELPER: ROTASI GEOMETRI ---
-// Fungsi ini membuat garis lengan simpang yang bisa DI-ROTASI agar pas dengan jalan
-const createRotatedArms = (
-  center: [number, number], 
-  idPrefix: string, 
-  radius: number = 0.002, // Panjang lengan (~200m)
-  rotationDegrees: number = 0 // Sudut putar (searah jarum jam)
-) => {
-  const [cx, cy] = center;
-  
-  // Konversi derajat ke radian
-  const rad = (rotationDegrees * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
+// --- DATA TYPES ---
+type LightStatus = {
+  color: "red" | "yellow" | "green";
+  timer: number;
+};
 
-  // Fungsi putar titik (relatif terhadap center)
-  const rotatePoint = (dx: number, dy: number) => {
-    return [
-      cx + (dx * cos - dy * sin), 
-      cy + (dx * sin + dy * cos)
-    ];
-  };
-
-  // Koordinat relatif lengan (sebelum diputar)
-  // dx = longitude offset, dy = latitude offset
-  const northEnd = rotatePoint(0, radius);
-  const southEnd = rotatePoint(0, -radius);
-  const eastEnd  = rotatePoint(radius, 0);
-  const westEnd  = rotatePoint(-radius, 0);
-
-  return [
-    {
-      type: "Feature",
-      properties: { id: `${idPrefix}-north`, dir: "Utara" },
-      geometry: { type: "LineString", coordinates: [[cx, cy], northEnd] }
-    },
-    {
-      type: "Feature",
-      properties: { id: `${idPrefix}-south`, dir: "Selatan" },
-      geometry: { type: "LineString", coordinates: [[cx, cy], southEnd] }
-    },
-    {
-      type: "Feature",
-      properties: { id: `${idPrefix}-east`, dir: "Timur" },
-      geometry: { type: "LineString", coordinates: [[cx, cy], eastEnd] }
-    },
-    {
-      type: "Feature",
-      properties: { id: `${idPrefix}-west`, dir: "Barat" },
-      geometry: { type: "LineString", coordinates: [[cx, cy], westEnd] }
-    }
-  ];
+type IntersectionState = {
+  north: LightStatus;
+  south: LightStatus;
+  east: LightStatus;
+  west: LightStatus;
 };
 
 const MAPBOX_TOKEN_KEY = "traffic_dashboard_mapbox_token";
@@ -70,13 +29,82 @@ const TrafficMap = () => {
   const [tokenSubmitted, setTokenSubmitted] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
-  
-  // State warna jalur (Simulasi)
-  const [laneColors, setLaneColors] = useState<Record<string, string>>({
-    "samsat-north": "red", "samsat-south": "green", "samsat-east": "yellow", "samsat-west": "green",
-    "bubat-north": "green", "bubat-south": "red", "bubat-east": "green", "bubat-west": "red",
+
+  // --- STATE TRAFFIC LIGHT (Simulasi Data ML) ---
+  const [samsatState, setSamsatState] = useState<IntersectionState>({
+    north: { color: "red", timer: 45 },
+    south: { color: "green", timer: 20 },
+    east: { color: "red", timer: 60 },
+    west: { color: "red", timer: 60 },
   });
 
+  const [bubatState, setBubatState] = useState<IntersectionState>({
+    north: { color: "green", timer: 30 },
+    south: { color: "red", timer: 85 },
+    east: { color: "red", timer: 40 },
+    west: { color: "green", timer: 30 }, // Belok kiri jalan terus misal
+  });
+
+  // --- 1. FUNGSI UPDATE DOM MARKER (Agar performa ringan) ---
+  const updateMarkerVisuals = (idPrefix: string, state: IntersectionState) => {
+    const directions = ["north", "south", "east", "west"] as const;
+    
+    directions.forEach((dir) => {
+      const el = document.getElementById(`${idPrefix}-${dir}`);
+      const timerEl = document.getElementById(`${idPrefix}-${dir}-timer`);
+      
+      if (el && timerEl) {
+        const { color, timer } = state[dir];
+        
+        // Update Warna Background
+        const bgColor = color === "red" ? "#ef4444" : color === "yellow" ? "#eab308" : "#22c55e";
+        const shadow = color === "green" ? "0 0 15px #22c55e" : "none";
+        
+        el.style.backgroundColor = bgColor;
+        el.style.boxShadow = shadow;
+        el.style.borderColor = color === "red" ? "#991b1b" : "#fff";
+        
+        // Update Angka Timer
+        timerEl.innerText = timer.toString();
+      }
+    });
+  };
+
+  // --- 2. LOGIKA SIMULASI COUNTDOWN ---
+  useEffect(() => {
+    const timer = setInterval(() => {
+      // Helper untuk logika lampu sederhana (decrement timer, ganti warna kalau 0)
+      const cycleLight = (prev: IntersectionState): IntersectionState => {
+        const next = { ...prev };
+        (["north", "south", "east", "west"] as const).forEach((dir) => {
+          if (next[dir].timer > 0) {
+            next[dir].timer -= 1;
+          } else {
+            // Reset cycle sederhana
+            next[dir].color = next[dir].color === "red" ? "green" : "red";
+            next[dir].timer = next[dir].color === "green" ? 30 : 60;
+          }
+        });
+        return next;
+      };
+
+      setSamsatState(prev => cycleLight(prev));
+      setBubatState(prev => cycleLight(prev));
+
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  // --- 3. SYNC STATE REACT KE PETA ---
+  useEffect(() => {
+    if(!map.current) return;
+    updateMarkerVisuals("samsat", samsatState);
+    updateMarkerVisuals("bubat", bubatState);
+  }, [samsatState, bubatState]);
+
+
+  // --- 4. INISIALISASI PETA & PEMBUATAN MARKER HTML ---
   useEffect(() => {
     if (!tokenSubmitted) return;
     if (!mapboxToken || mapboxToken.trim().length < 10) return;
@@ -89,121 +117,121 @@ const TrafficMap = () => {
     try {
       mapboxgl.accessToken = mapboxToken.trim();
 
-      // --- SETTING PETA VERTIKAL (LANDAI) ---
       map.current = new mapboxgl.Map({
         container: mapContainer.current,
         style: "mapbox://styles/mapbox/dark-v11",
-        // Titik tengah antara Samsat & Bubat
         center: [107.6375, -6.9465], 
-        zoom: 14.5,
-        pitch: 0,   // PENTING: 0 agar tegak lurus (2D/Landai)
-        bearing: 0, // Utara selalu di atas
+        zoom: 14.5, // Zoom ideal untuk melihat 2 simpang
+        pitch: 0,   // Tegak lurus (2D) agar posisi akurat
         attributionControl: false,
       });
 
-      map.current.on("error", (e) => {
-        if (e.error?.message?.includes("forbidden") || e.error?.message?.includes("Unauthorized")) {
-           setMapError("Token Invalid.");
-           setIsLoading(false);
-        }
-      });
+      // --- FUNGSI MEMBUAT ELEMEN HTML MARKER (HUD) ---
+      const createHUDMarker = (idPrefix: string, label: string) => {
+        const container = document.createElement("div");
+        container.className = "traffic-hud-container";
+        container.style.position = "relative";
+        container.style.width = "0px";
+        container.style.height = "0px";
+        container.style.display = "flex";
+        container.style.alignItems = "center";
+        container.style.justifyContent = "center";
+
+        // Titik Tengah (Pusat Simpang)
+        const centerDot = document.createElement("div");
+        centerDot.style.width = "12px";
+        centerDot.style.height = "12px";
+        centerDot.style.backgroundColor = "white";
+        centerDot.style.borderRadius = "50%";
+        centerDot.style.boxShadow = "0 0 10px white";
+        centerDot.style.zIndex = "10";
+        container.appendChild(centerDot);
+
+        // Label Nama Simpang
+        const labelEl = document.createElement("div");
+        labelEl.innerText = label;
+        labelEl.style.position = "absolute";
+        labelEl.style.top = "-50px";
+        labelEl.style.whiteSpace = "nowrap";
+        labelEl.style.color = "white";
+        labelEl.style.fontWeight = "bold";
+        labelEl.style.textShadow = "0 2px 4px black";
+        labelEl.style.fontSize = "12px";
+        labelEl.style.background = "rgba(0,0,0,0.7)";
+        labelEl.style.padding = "2px 8px";
+        labelEl.style.borderRadius = "4px";
+        container.appendChild(labelEl);
+
+        // Helper untuk membuat kotak lampu
+        const createLightBox = (dir: string, dx: string, dy: string) => {
+          const box = document.createElement("div");
+          box.id = `${idPrefix}-${dir}`; // ID unik: samsat-north
+          box.style.position = "absolute";
+          box.style.width = "28px";
+          box.style.height = "28px";
+          box.style.transform = `translate(${dx}, ${dy})`;
+          box.style.borderRadius = "6px";
+          box.style.border = "2px solid #555";
+          box.style.display = "flex";
+          box.style.alignItems = "center";
+          box.style.justifyContent = "center";
+          box.style.color = "white";
+          box.style.fontWeight = "bold";
+          box.style.fontSize = "11px";
+          box.style.transition = "background-color 0.3s";
+          box.style.zIndex = "5";
+          
+          const timerSpan = document.createElement("span");
+          timerSpan.id = `${idPrefix}-${dir}-timer`;
+          timerSpan.innerText = "--";
+          box.appendChild(timerSpan);
+
+          return box;
+        };
+
+        // Posisi 4 Arah (Pixel Offset dari tengah)
+        // Utara (Atas), Selatan (Bawah), Timur (Kanan), Barat (Kiri)
+        container.appendChild(createLightBox("north", "0px", "-25px"));
+        container.appendChild(createLightBox("south", "0px", "25px"));
+        container.appendChild(createLightBox("east", "25px", "0px"));
+        container.appendChild(createLightBox("west", "-25px", "0px"));
+
+        return container;
+      };
 
       map.current.on("load", () => {
         setIsLoading(false);
         if (!map.current) return;
 
-        // --- KOORDINAT BARU (Konversi dari DMS ke Decimal) ---
-        // Simpang Samsat: 6°56'43.1"S 107°38'30.8"E
+        // KOORDINAT PRESISI (Decimal)
         const samsatCoords = [107.641889, -6.945306] as [number, number];
-        
-        // Simpang Buah Batu: 6°56'52.9"S 107°38'00.3"E
         const bubatCoords = [107.633417, -6.948028] as [number, number];
 
-        // --- GENERATE GEOMETRI DENGAN ROTASI ---
-        // Rotasi -12 derajat agar lurus dengan Jl. Soekarno Hatta
-        const samsatFeatures = createRotatedArms(samsatCoords, "samsat", 0.0025, -12);
-        const bubatFeatures = createRotatedArms(bubatCoords, "bubat", 0.0025, -12);
+        // Tambahkan Marker Samsat
+        new mapboxgl.Marker({ element: createHUDMarker("samsat", "Samsat Kiaracondong") })
+          .setLngLat(samsatCoords)
+          .addTo(map.current);
 
-        const allFeatures = [...samsatFeatures, ...bubatFeatures];
+        // Tambahkan Marker Buah Batu
+        new mapboxgl.Marker({ element: createHUDMarker("bubat", "Buah Batu") })
+          .setLngLat(bubatCoords)
+          .addTo(map.current);
 
-        map.current.addSource("traffic-lanes", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: allFeatures as any }
-        });
-
-        // LAYER JALUR (GARIS)
-        map.current.addLayer({
-          id: "lanes-layer",
-          type: "line",
-          source: "traffic-lanes",
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: {
-            // Lebar garis dinamis
-            "line-width": [
-              "interpolate", ["linear"], ["zoom"],
-              12, 3,
-              18, 25 // Makin zoom in, makin tebal
-            ],
-            // Warna Default (nanti ditimpa useEffect update)
-            "line-color": "#555", 
-            "line-opacity": 0.8
-          }
-        });
-
-        // LAYER PANAH ARAH
-        map.current.addLayer({
-          id: "lanes-arrow",
-          type: "symbol",
-          source: "traffic-lanes",
-          layout: {
-            "symbol-placement": "line",
-            "text-field": "▶", // Karakter panah
-            "text-size": 16,
-            "symbol-spacing": 80,
-            "text-keep-upright": false 
-          },
-          paint: { "text-color": "#fff", "text-halo-color": "#000", "text-halo-width": 2 }
-        });
-
-        // LABEL NAMA SIMPANG
-        map.current.addSource("labels", {
-          type: "geojson",
-          data: {
-              type: "FeatureCollection",
-              features: [
-                  { type: "Feature", geometry: { type: "Point", coordinates: samsatCoords }, properties: { title: "Samsat Kiaracondong" } },
-                  { type: "Feature", geometry: { type: "Point", coordinates: bubatCoords }, properties: { title: "Buah Batu" } }
-              ]
-          }
-        });
-        
-        map.current.addLayer({
-            id: "label-layer",
-            type: "symbol",
-            source: "labels",
-            layout: {
-                "text-field": ["get", "title"],
-                "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
-                "text-size": 13,
-                "text-offset": [0, -1.5], // Label di atas titik
-                "text-anchor": "bottom"
-            },
-            paint: {
-                "text-color": "#ffffff",
-                "text-halo-color": "#000000",
-                "text-halo-width": 3
-            }
-        });
-
-        // Resize Fix
+        // Force Resize
         map.current.resize();
-        setTimeout(() => map.current?.resize(), 500);
+      });
+
+      map.current.on("error", (e) => {
+        if (e.error?.message?.includes("forbidden")) {
+           setMapError("Token Invalid.");
+           setIsLoading(false);
+        }
       });
 
       map.current.addControl(new mapboxgl.NavigationControl(), "top-right");
 
     } catch (error) {
-      console.error("Map Error:", error);
+      console.error("Map Init Error:", error);
       setMapError("Gagal memuat peta.");
       setIsLoading(false);
     }
@@ -214,35 +242,6 @@ const TrafficMap = () => {
     };
   }, [mapboxToken, tokenSubmitted]);
 
-  // Update Warna Real-time
-  useEffect(() => {
-    if (!map.current?.getLayer("lanes-layer")) return;
-    
-    // Interval Simulasi
-    const interval = setInterval(() => {
-        setLaneColors(prev => ({
-            ...prev,
-            "samsat-north": Math.random() > 0.5 ? "red" : "green",
-            "bubat-south": Math.random() > 0.5 ? "red" : "green",
-        }));
-    }, 2000);
-
-    // Apply Colors
-    const matchExpression: any[] = ["match", ["get", "id"]];
-    Object.entries(laneColors).forEach(([id, color]) => {
-        matchExpression.push(id); 
-        const hex = color === "red" ? "#ef4444" : color === "yellow" ? "#eab308" : "#22c55e";
-        matchExpression.push(hex); 
-    });
-    matchExpression.push("#888");
-
-    if (map.current.isStyleLoaded()) {
-      map.current.setPaintProperty("lanes-layer", "line-color", matchExpression);
-    }
-
-    return () => clearInterval(interval);
-  }, [laneColors]); 
-
   // --- RENDER UI ---
   return (
     <div className="flex-1 relative w-full h-full min-h-[500px] overflow-hidden rounded-xl border border-border/50 shadow-sm">
@@ -252,18 +251,33 @@ const TrafficMap = () => {
       />
       
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-50">
+        <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm z-50">
           <Loader2 className="w-10 h-10 text-primary animate-spin" />
         </div>
       )}
 
-      {/* LEGENDA WARNA (Floating) */}
-      <div className="absolute bottom-5 left-5 z-40 bg-card/95 backdrop-blur-md border border-border p-4 rounded-lg shadow-lg">
-        <h4 className="text-xs font-bold mb-2 uppercase">Status Lalu Lintas</h4>
-        <div className="space-y-2 text-xs">
-          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span> Lancar</div>
-          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-yellow-500"></span> Padat</div>
-          <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-red-500"></span> Macet</div>
+      {/* ERROR MESSAGE */}
+      {mapError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-50 p-4">
+          <div className="text-destructive text-center font-bold">
+            <AlertCircle className="mx-auto mb-2" />
+            {mapError}
+          </div>
+        </div>
+      )}
+
+      {/* LEGEND SEDERHANA */}
+      <div className="absolute bottom-5 left-5 z-40 bg-card/90 backdrop-blur p-3 rounded-lg border border-border shadow-lg">
+        <h4 className="text-xs font-bold mb-2 uppercase text-foreground">Traffic Light Status</h4>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded border border-white/20 bg-green-500 text-[8px] text-white flex items-center justify-center font-bold">20</div>
+            <span>Green (Go)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded border border-white/20 bg-red-500 text-[8px] text-white flex items-center justify-center font-bold">45</div>
+            <span>Red (Stop)</span>
+          </div>
         </div>
       </div>
     </div>
