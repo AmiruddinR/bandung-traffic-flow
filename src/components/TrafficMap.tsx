@@ -162,7 +162,7 @@ const TrafficMap = () => {
           };
 
           const marker1Element = createMarkerElement(1);
-          new mapboxgl.Marker({ element: marker1Element })
+          new mapboxgl.Marker({ element: marker1Element, anchor: 'center' })
             .setLngLat(kiaracondong as [number, number])
             .setPopup(
               new mapboxgl.Popup({ offset: 25 }).setHTML(
@@ -172,7 +172,7 @@ const TrafficMap = () => {
             .addTo(map.current);
 
           const marker2Element = createMarkerElement(2);
-          new mapboxgl.Marker({ element: marker2Element })
+          new mapboxgl.Marker({ element: marker2Element, anchor: 'center' })
             .setLngLat(buahBatu as [number, number])
             .setPopup(
               new mapboxgl.Popup({ offset: 25 }).setHTML(
