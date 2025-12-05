@@ -86,9 +86,12 @@ const TrafficMap = () => {
         setIsLoading(false);
         if (!map.current) return;
 
-        const kiaracondong = [107.6385, -6.9297] as [number, number];
-        const buahBatu = [107.6338, -6.9432] as [number, number];
-
+        const kiaracondong = [107.6466, -6.9448] as [number, number]; // Pertemuan Jl. Soekarno Hatta & Ibrahim Adjie
+        const buahBatu = [107.6338, -6.9475] as [number, number];     // Pertemuan Jl. Soekarno Hatta & Buah Batu
+        // OPTIONAL: Sesuaikan panjang lengan simpang (radius)
+        // 0.003 derajat kira-kira 300 meter. Jika terlalu panjang, ubah ke 0.0015 atau 0.002
+        const samsatFeatures = createIntersectionFeature(kiaracondong, "samsat", 0.0025);
+        const bubatFeatures = createIntersectionFeature(buahBatu, "bubat", 0.0025);
         // 1. Setup GeoJSON Data
         const allFeatures = [
           ...createIntersectionFeature(kiaracondong, "samsat", 0.003),
@@ -183,28 +186,68 @@ const TrafficMap = () => {
   }, [laneColors]); 
 
   // --- RENDER ---
-  return (
-    // Style inline menjamin height tidak 0
-    <div className="relative w-full h-full flex-1" style={{ minHeight: "500px", height: "100%" }}>
-      <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
-      
-      {/* Loading Overlay */}
-      {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-20">
-          <Loader2 className="w-10 h-10 text-white animate-spin" />
-        </div>
-      )}
+  // Ganti seluruh block return di bawah dengan ini:
 
-      {/* Error Overlay */}
-      {mapError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-20 p-4">
-          <div className="text-red-400 font-bold flex flex-col items-center gap-2">
-            <AlertCircle />
-            <span>{mapError}</span>
-            <button onClick={() => window.location.reload()} className="text-xs underline text-white">Reload Page</button>
+  return (
+    <div className="flex-1 relative w-full h-full min-h-[500px] overflow-hidden rounded-xl border border-border/50 shadow-sm">
+      {/* 1. CONTAINER PETA */}
+      <div 
+        ref={mapContainer} 
+        className="absolute inset-0 w-full h-full"
+      />
+      
+      {/* 2. LOADING STATE */}
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-50">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-10 h-10 text-primary animate-spin" />
+            <span className="text-sm font-medium text-muted-foreground">Memuat Peta Bandung...</span>
           </div>
         </div>
       )}
+
+      {/* 3. ERROR STATE */}
+      {mapError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/90 z-50 p-6">
+          <div className="flex flex-col items-center gap-2 text-destructive text-center">
+            <AlertCircle className="w-12 h-12" />
+            <h3 className="font-bold text-lg">Gagal Memuat Peta</h3>
+            <p className="text-sm text-muted-foreground">{mapError}</p>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90"
+            >
+              Coba Lagi
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 4. LEGENDA WARNA (Floating UI) - Pastikan z-index tinggi (z-40) */}
+      <div className="absolute bottom-5 left-5 z-40 bg-card/95 backdrop-blur-md border border-border p-4 rounded-lg shadow-lg max-w-[200px]">
+        <h4 className="text-xs font-bold text-foreground mb-3 uppercase tracking-wider">Status Kepadatan</h4>
+        <div className="space-y-2.5">
+          <div className="flex items-center gap-3">
+            <span className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse"></span>
+            <span className="text-xs text-muted-foreground font-medium">Lancar (Flowing)</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="w-3 h-3 rounded-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.6)]"></span>
+            <span className="text-xs text-muted-foreground font-medium">Padat (Moderate)</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]"></span>
+            <span className="text-xs text-muted-foreground font-medium">Macet (Congested)</span>
+          </div>
+        </div>
+      </div>
+      
+      {/* 5. INFO SINKRONISASI (Pojok Kanan Atas) */}
+      <div className="absolute top-5 right-5 z-40 bg-card/95 backdrop-blur-md border border-border px-4 py-2 rounded-full shadow-lg flex items-center gap-2">
+         <div className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
+         <span className="text-xs font-semibold text-foreground">AI Sync Active</span>
+      </div>
+
     </div>
   );
 };
