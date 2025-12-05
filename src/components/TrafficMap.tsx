@@ -93,9 +93,10 @@ const TrafficMap = () => {
         map.current = new mapboxgl.Map({
           container: mapContainer.current,
           style: "mapbox://styles/mapbox/dark-v11",
-          center: [107.6191, -6.9175],
-          zoom: 12.5,
-          pitch: 45,
+          center: [107.6376, -6.9467], // Center between both intersections
+          zoom: 15,
+          pitch: 0, // Top-down view
+          bearing: 0,
         });
 
         map.current.on("error", (e) => {
@@ -108,8 +109,10 @@ const TrafficMap = () => {
           setIsLoading(false);
           if (!map.current) return;
 
-          const kiaracondong = [107.6385, -6.9297];
-          const buahBatu = [107.6338, -6.9432];
+          // Simpang Samsat: 6°56'43.1"S 107°38'30.8"E
+          const kiaracondong = [107.641889, -6.945306];
+          // Simpang Buah Batu: 6°56'52.9"S 107°38'00.3"E
+          const buahBatu = [107.633417, -6.948028];
 
           const createMarkerElement = (lightId: number) => {
             const el = document.createElement("div");
@@ -178,48 +181,6 @@ const TrafficMap = () => {
             )
             .addTo(map.current);
 
-          map.current.addSource("route", {
-            type: "geojson",
-            data: {
-              type: "Feature",
-              properties: {},
-              geometry: {
-                type: "LineString",
-                coordinates: [kiaracondong, buahBatu],
-              },
-            },
-          });
-
-          map.current.addLayer({
-            id: "route",
-            type: "line",
-            source: "route",
-            layout: {
-              "line-join": "round",
-              "line-cap": "round",
-            },
-            paint: {
-              "line-color": "#00ff88",
-              "line-width": 4,
-              "line-opacity": 0.8,
-            },
-          });
-
-          map.current.addLayer({
-            id: "route-glow",
-            type: "line",
-            source: "route",
-            layout: {
-              "line-join": "round",
-              "line-cap": "round",
-            },
-            paint: {
-              "line-color": "#00ff88",
-              "line-width": 8,
-              "line-opacity": 0.3,
-              "line-blur": 4,
-            },
-          });
         });
 
         map.current.addControl(new mapboxgl.NavigationControl(), "top-right");
