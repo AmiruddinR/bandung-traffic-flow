@@ -66,9 +66,23 @@ const TrafficMap = () => {
     if (!tokenSubmitted) return;
     if (!mapboxToken || mapboxToken.trim().length < 10) return;
     
-    // Small delay to ensure DOM is ready
+    // Delay to ensure DOM is ready and container has dimensions
     const initTimer = setTimeout(() => {
-      if (!mapContainer.current) return;
+      if (!mapContainer.current) {
+        console.error("Map container ref is null");
+        setMapError("Map container not found. Please refresh the page.");
+        return;
+      }
+      
+      // Check if container has actual dimensions
+      const rect = mapContainer.current.getBoundingClientRect();
+      console.log("Map container dimensions:", rect.width, rect.height);
+      
+      if (rect.width === 0 || rect.height === 0) {
+        console.error("Map container has no dimensions");
+        setMapError("Map container has no dimensions. Please refresh the page.");
+        return;
+      }
       
       setIsLoading(true);
       setMapError(null);
@@ -214,7 +228,7 @@ const TrafficMap = () => {
         setMapError("Failed to initialize map.");
         setIsLoading(false);
       }
-    }, 100);
+    }, 200);
 
     return () => {
       clearTimeout(initTimer);
@@ -303,8 +317,8 @@ const TrafficMap = () => {
   }
 
   return (
-    <div className="flex-1 relative">
-      <div ref={mapContainer} className="absolute inset-0" />
+    <div className="flex-1 relative w-full h-full" style={{ minHeight: '400px' }}>
+      <div ref={mapContainer} className="absolute inset-0 w-full h-full" style={{ minHeight: '400px' }}></div>
       
       {/* Loading Indicator */}
       {isLoading && (
