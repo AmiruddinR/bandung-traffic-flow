@@ -22,7 +22,7 @@ const TrafficMap = () => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   
-  // Gunakan Token Mapbox (Ganti dengan .env di produksi)
+  // Gunakan Token Mapbox
   const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || "pk.eyJ1IjoiYW1pcnVkZGluciIsImEiOiJjbWlndXkwOHMwYnlmM2twbGd4NTZtcDJqIn0.XeXOdO7CygNuVKhv7W8FnA";
 
   const [isLoading, setIsLoading] = useState(false);
@@ -42,7 +42,7 @@ const TrafficMap = () => {
     west: { color: "green", timer: 20 },
   });
 
-  // --- 1. UPDATE VISUAL DOM (Tanpa Re-render React yang berat) ---
+  // --- 1. UPDATE VISUAL DOM ---
   const updateMarkerDOM = (idPrefix: string, data: IntersectionState) => {
     const directions = ["north", "south", "east", "west"] as const;
     
@@ -56,19 +56,21 @@ const TrafficMap = () => {
         // Warna & Style
         const bgColor = color === "red" ? "#ef4444" : color === "yellow" ? "#eab308" : "#22c55e";
         const borderColor = "#ffffff";
-        // Efek glow hanya jika hijau atau merah menyala
         const boxShadow = color === "green" 
           ? "0 0 10px rgba(34, 197, 94, 0.9)" 
           : color === "red" 
             ? "0 0 10px rgba(239, 68, 68, 0.6)" 
             : "none";
+        // Efek membesar sedikit saat hijau
+        const transformScale = color === "green" ? "scale(1.15)" : "scale(1)";
         
-        // Update Style
+        // Terapkan Style
         box.style.backgroundColor = bgColor;
         box.style.borderColor = borderColor;
         box.style.boxShadow = boxShadow;
+        // PENTING: translate(-50%, -50%) menjaga titik tengah tetap presisi
+        box.style.transform = `translate(-50%, -50%) ${transformScale}`;
         
-        // Update Angka
         timerText.innerText = timer.toString();
       }
     });
@@ -102,7 +104,6 @@ const TrafficMap = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Update DOM saat state berubah
   useEffect(() => {
     updateMarkerDOM("samsat", samsatData);
     updateMarkerDOM("bubat", bubatData);
@@ -122,41 +123,57 @@ const TrafficMap = () => {
         style: "mapbox://styles/mapbox/dark-v11",
         center: [107.6375, -6.9465],
         zoom: 15,
-        pitch: 0,   // FIX 1: Set 0 agar tegak lurus (Datar/2D)
+        pitch: 0,   // PASTIKAN 0 agar peta datar (tegak lurus dari atas)
         bearing: 0, // Utara selalu di atas
         attributionControl: false,
       });
 
-      // --- HELPER 1: Marker LAMPU ---
-      const createLightsElement = (idPrefix: string, rotationDeg: number, dist: number = 40) => {
+      // --- HELPER 1: Marker LAMPU dengan TRIGONOMETRI ---
+      // Kita menghitung posisi X,Y secara manual berdasarkan sudut rotasi jalan.
+      // Dengan cara ini, container TIDAK perlu di-rotate pakai CSS,
+      // sehingga angka di dalamnya otomatis tetap lurus.
+      const createLightsElement = (idPrefix: string, rotationDeg: number, dist: number = 42) => {
         const container = document.createElement("div");
         Object.assign(container.style, {
           position: "relative",
           width: "0px", height: "0px",
           display: "flex", alignItems: "center", justifyContent: "center",
-          // Container ini diputar agar sesuai arah jalan
-          transform: `rotate(${rotationDeg}deg)` 
+          // HAPUS rotasi container agar angka tetap tegak
+          transform: "none" 
         });
 
-        // Titik Tengah Simpang
+        // Titik Tengah Simpang (Dot Putih)
         const center = document.createElement("div");
         Object.assign(center.style, {
           position: "absolute",
           width: "8px", height: "8px", 
           backgroundColor: "white", borderRadius: "50%",
-          boxShadow: "0 0 5px white", zIndex: "1"
+          boxShadow: "0 0 8px white", zIndex: "1",
+          transform: "translate(-50%, -50%)"
         });
         container.appendChild(center);
 
-        // Fungsi membuat lampu
-        const createLight = (dir: string, x: number, y: number) => {
+        // Rumus Rotasi 2D
+        const toRad = (deg: number) => deg * (Math.PI / 180);
+        const rotatePoint = (x: number, y: number, angleDeg: number) => {
+            const rad = toRad(angleDeg);
+            const newX = x * Math.cos(rad) - y * Math.sin(rad);
+            const newY = x * Math.sin(rad) + y * Math.cos(rad);
+            return { x: newX, y: newY };
+        };
+
+        // Fungsi membuat satu lampu
+        const createLight = (dir: string, originalX: number, originalY: number) => {
+          // Hitung posisi baru setelah rotasi
+          const pos = rotatePoint(originalX, originalY, rotationDeg);
+
           const circle = document.createElement("div");
           circle.id = `${idPrefix}-${dir}`;
           Object.assign(circle.style, {
             position: "absolute",
             width: "30px", height: "30px",
-            // Mengatur posisi relatif terhadap pusat container
-            left: `${x}px`, top: `${y}px`,
+            // Posisi berdasarkan hasil hitungan trigonometri
+            left: `${pos.x}px`, top: `${pos.y}px`,
             transform: "translate(-50%, -50%)", // Center anchor
             backgroundColor: "#333", border: "2px solid #fff",
             borderRadius: "50%",
@@ -171,18 +188,16 @@ const TrafficMap = () => {
           Object.assign(span.style, {
             color: "white", 
             fontSize: "11px", 
-            fontWeight: "bold", 
+            fontWeight: "800", // Lebih tebal agar terbaca
             fontFamily: "monospace",
-            // FIX 2: Counter-rotate agar angka tegak lurus kembali
-            // Kita memutar balik angka sebesar minus derajat rotasi container
-            transform: `rotate(${-rotationDeg}deg)` 
+            // TIDAK PERLU TRANSFORM/ROTASI LAGI KARENA PARENTNYA LURUS
           });
 
           circle.appendChild(span);
           return circle;
         };
 
-        // Tambahkan lampu (Posisi X, Y relatif terhadap rotasi container)
+        // Tambahkan lampu (Posisi Awal Relatif: Utara=Y-, Selatan=Y+, Timur=X+, Barat=X-)
         container.appendChild(createLight("north", 0, -dist));
         container.appendChild(createLight("south", 0, dist));
         container.appendChild(createLight("east", dist, 0));
@@ -196,16 +211,15 @@ const TrafficMap = () => {
         const labelEl = document.createElement("div");
         labelEl.innerText = label;
         Object.assign(labelEl.style, {
-          background: "rgba(0,0,0,0.8)", 
+          background: "rgba(0,0,0,0.85)", 
           color: "#fff",
-          padding: "4px 10px", 
-          borderRadius: "4px",
-          fontSize: "12px", 
+          padding: "5px 10px", 
+          borderRadius: "6px",
+          fontSize: "11px", 
           fontWeight: "600",
-          border: "1px solid rgba(255,255,255,0.3)",
+          border: "1px solid rgba(255,255,255,0.2)",
           whiteSpace: "nowrap",
-          pointerEvents: "none",
-          textShadow: "0 1px 2px black"
+          pointerEvents: "none"
         });
         return labelEl;
       };
@@ -217,24 +231,24 @@ const TrafficMap = () => {
         const samsatLoc = [107.641889, -6.945306] as [number, number];
         const bubatLoc = [107.633417, -6.948028] as [number, number];
 
-        // --- RENDER SAMSAT ---
-        // Lampu: rotationAlignment 'map' agar posisi lampu sesuai simpang jalan
+        // --- SAMSAT ---
+        // Lampu: 'map' alignment agar posisi lampu (x,y) menempel presisi di koordinat bumi
         new mapboxgl.Marker({ 
           element: createLightsElement("samsat", -12), // Rotasi -12 derajat
           rotationAlignment: 'map', 
           pitchAlignment: 'map'
         }).setLngLat(samsatLoc).addTo(map.current);
 
-        // Label: rotationAlignment 'viewport' agar tulisan SELALU tegak lurus layar
+        // Label: 'viewport' alignment agar SELALU tegak lurus layar
         new mapboxgl.Marker({ 
           element: createLabelElement("Samsat Kiaracondong"),
           rotationAlignment: 'viewport', 
           pitchAlignment: 'viewport',
-          offset: [0, -60] 
+          offset: [0, -65] 
         }).setLngLat(samsatLoc).addTo(map.current);
 
 
-        // --- RENDER BUAH BATU ---
+        // --- BUAH BATU ---
         new mapboxgl.Marker({ 
           element: createLightsElement("bubat", -12),
           rotationAlignment: 'map',
@@ -245,7 +259,7 @@ const TrafficMap = () => {
           element: createLabelElement("Buah Batu"),
           rotationAlignment: 'viewport',
           pitchAlignment: 'viewport',
-          offset: [0, -60]
+          offset: [0, -65]
         }).setLngLat(bubatLoc).addTo(map.current);
 
         map.current.resize();
