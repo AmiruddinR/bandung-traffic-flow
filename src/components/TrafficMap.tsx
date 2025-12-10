@@ -18,15 +18,13 @@ interface IntersectionState {
   west: DirectionState;
 }
 
-const MAPBOX_TOKEN_KEY = "traffic_dashboard_mapbox_token";
-
 const TrafficMap = () => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
-  const HARDCODED_TOKEN = "pk.eyJ1IjoiYW1pcnVkZGluciIsImEiOiJjbWlndXkwOHMwYnlmM2twbGd4NTZtcDJqIn0.XeXOdO7CygNuVKhv7W8FnA"; 
+  
+  // Gunakan Environment Variable untuk keamanan, fallback ke token lama untuk dev
+  const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || "pk.eyJ1IjoiYW1pcnVkZGluciIsImEiOiJjbWlndXkwOHMwYnlmM2twbGd4NTZtcDJqIn0.XeXOdO7CygNuVKhv7W8FnA";
 
-  const [mapboxToken, setMapboxToken] = useState(HARDCODED_TOKEN);
-  const [tokenSubmitted, setTokenSubmitted] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   
   // --- STATE TRAFFIC LIGHT ---
@@ -105,87 +103,83 @@ const TrafficMap = () => {
 
   // --- 3. INISIALISASI PETA ---
   useEffect(() => {
-    if (!tokenSubmitted || !mapboxToken || mapboxToken.length < 10) return;
-    if (map.current) return;
+    if (map.current) return; // Prevent double initialization
 
     setIsLoading(true);
 
     try {
-      mapboxgl.accessToken = mapboxToken.trim();
+      mapboxgl.accessToken = MAPBOX_TOKEN;
 
       map.current = new mapboxgl.Map({
         container: mapContainer.current!,
         style: "mapbox://styles/mapbox/dark-v11",
         center: [107.6375, -6.9465],
         zoom: 14.8,
-        pitch: 0, 
+        pitch: 45, // Memberikan efek 3D sedikit agar lebih keren
+        bearing: 0,
         attributionControl: false,
       });
 
-      // --- HELPER PEMBUAT HUD ---
-      const createHUDElement = (idPrefix: string, label: string, rotationDeg: number, dist: number = 38) => {
-        // Container Utama (Rotated)
+      // --- HELPER 1: Marker Lampu (Ikut Rotasi Peta) ---
+      const createLightsElement = (idPrefix: string, rotationDeg: number, dist: number = 38) => {
         const container = document.createElement("div");
-        container.className = "traffic-hud";
-        container.style.position = "relative";
-        container.style.display = "flex";
-        container.style.alignItems = "center";
-        container.style.justifyContent = "center";
-        // Rotasi container mengikuti jalan
-        container.style.transform = `rotate(${rotationDeg}deg)`;
+        container.className = "traffic-lights-group";
+        Object.assign(container.style, {
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "0px",
+          height: "0px",
+          // Rotasi statis menyesuaikan arah jalan (heading)
+          transform: `rotate(${rotationDeg}deg)` 
+        });
 
         // Titik Tengah
         const center = document.createElement("div");
         Object.assign(center.style, {
-          width: "12px", height: "12px", backgroundColor: "white", borderRadius: "50%",
-          boxShadow: "0 0 10px white", zIndex: "10"
+          position: "absolute",
+          width: "12px", height: "12px", 
+          backgroundColor: "white", borderRadius: "50%",
+          boxShadow: "0 0 10px white", zIndex: "10",
+          transform: "translate(-50%, -50%)"
         });
         container.appendChild(center);
 
-        // Label Nama Jalan (Counter-Rotated)
-        const labelEl = document.createElement("div");
-        labelEl.innerText = label;
-        Object.assign(labelEl.style, {
-          position: "absolute", top: "-70px",
-          background: "rgba(0,0,0,0.8)", color: "#fff",
-          padding: "4px 8px", borderRadius: "4px",
-          fontSize: "11px", fontWeight: "bold", whiteSpace: "nowrap",
-          // PENTING: display flex agar transform bekerja sempurna
-          display: "flex", alignItems: "center", justifyContent: "center",
-          // Putar balik agar horizontal
-          transform: `rotate(${-rotationDeg}deg)`
-        });
-        container.appendChild(labelEl);
-
-        // Fungsi Lampu Bulat
+        // Fungsi Pembuat Lampu
         const createLight = (dir: string, x: number, y: number) => {
           const circle = document.createElement("div");
           circle.id = `${idPrefix}-${dir}`;
           Object.assign(circle.style, {
             position: "absolute",
             width: "30px", height: "30px",
-            transform: `translate(${x}px, ${y}px)`,
+            // Posisi relatif terhadap pusat
+            left: `${x}px`, top: `${y}px`,
+            transform: "translate(-50%, -50%)", // Center anchor
             backgroundColor: "#555", border: "2px solid #fff",
-            borderRadius: "50%", // BULAT SEMPURNA
+            borderRadius: "50%",
             display: "flex", alignItems: "center", justifyContent: "center",
             zIndex: "5", transition: "background-color 0.2s"
           });
 
-          // Text Angka (Counter-Rotated)
+          // Text Angka (Harus di-counter-rotate agar tegak lurus relatif user)
+          // TAPI: Karena parent container di-set rotationAlignment 'map', 
+          // maka angka ini akan ikut muter.
+          // Solusi terbaik: Biarkan angka mengikuti orientasi lampu untuk keterbacaan "driver view",
+          // atau buat angka tegak lurus. Di sini kita buat tegak lurus relatif lampu.
           const span = document.createElement("span");
           span.id = `${idPrefix}-${dir}-timer`;
           span.innerText = "--";
           Object.assign(span.style, {
             color: "white", fontSize: "11px", fontWeight: "bold", fontFamily: "monospace",
-            display: "block", // Block agar bisa di-rotasi
-            transform: `rotate(${-rotationDeg}deg)` // Horizontal Text
+            transform: `rotate(${-rotationDeg}deg)` // Counter rotate agar angka tegak saat load awal
           });
 
           circle.appendChild(span);
           return circle;
         };
 
-        // Posisi Lampu (Atas, Bawah, Kanan, Kiri)
+        // Posisi Lampu
         container.appendChild(createLight("north", 0, -dist));
         container.appendChild(createLight("south", 0, dist));
         container.appendChild(createLight("east", dist, 0));
@@ -194,32 +188,73 @@ const TrafficMap = () => {
         return container;
       };
 
+      // --- HELPER 2: Marker Label (Selalu Horizontal/Viewport Aligned) ---
+      const createLabelElement = (label: string) => {
+        const labelEl = document.createElement("div");
+        labelEl.innerText = label;
+        Object.assign(labelEl.style, {
+          background: "rgba(0,0,0,0.8)", color: "#fff",
+          padding: "6px 10px", borderRadius: "6px",
+          fontSize: "12px", fontWeight: "bold", whiteSpace: "nowrap",
+          border: "1px solid rgba(255,255,255,0.2)",
+          boxShadow: "0 4px 6px rgba(0,0,0,0.3)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          // Pointer events none agar klik tembus ke peta jika perlu
+          pointerEvents: "none"
+        });
+        return labelEl;
+      };
+
       map.current.on("load", () => {
         setIsLoading(false);
         if (!map.current) return;
 
-        // Render Marker
         const samsat = [107.641889, -6.945306] as [number, number];
         const bubat = [107.633417, -6.948028] as [number, number];
 
-        // Rotasi -12 derajat agar sejajar jalan Soekarno Hatta
-        new mapboxgl.Marker({ element: createHUDElement("samsat", "Samsat Kiaracondong", -12) })
-          .setLngLat(samsat).addTo(map.current);
+        // --- RENDER MARKER SAMSAT ---
+        // 1. Lampu (Menempel di Peta)
+        new mapboxgl.Marker({ 
+          element: createLightsElement("samsat", -12),
+          rotationAlignment: 'map', // KUNCI: Ikut rotasi peta
+          pitchAlignment: 'map'     // KUNCI: Ikut kemiringan peta (menempel tanah)
+        }).setLngLat(samsat).addTo(map.current);
 
-        new mapboxgl.Marker({ element: createHUDElement("bubat", "Buah Batu", -12) })
-          .setLngLat(bubat).addTo(map.current);
+        // 2. Label (Tegak Lurus Layar)
+        new mapboxgl.Marker({ 
+          element: createLabelElement("Samsat Kiaracondong"),
+          rotationAlignment: 'viewport', // KUNCI: Selalu horizontal
+          pitchAlignment: 'viewport',    // KUNCI: Selalu tegak
+          offset: [0, -60]               // Geser ke atas agar tidak menumpuk lampu
+        }).setLngLat(samsat).addTo(map.current);
+
+
+        // --- RENDER MARKER BUAH BATU ---
+        // 1. Lampu
+        new mapboxgl.Marker({ 
+          element: createLightsElement("bubat", -12),
+          rotationAlignment: 'map',
+          pitchAlignment: 'map'
+        }).setLngLat(bubat).addTo(map.current);
+
+        // 2. Label
+        new mapboxgl.Marker({ 
+          element: createLabelElement("Buah Batu"),
+          rotationAlignment: 'viewport',
+          pitchAlignment: 'viewport',
+          offset: [0, -60]
+        }).setLngLat(bubat).addTo(map.current);
 
         map.current.resize();
       });
 
     } catch (error) {
-      console.error(error);
+      console.error("Error initializing map:", error);
       setIsLoading(false);
     }
-  }, [tokenSubmitted]);
+  }, []);
 
   return (
-    // FIX HEIGHT (h-[400px]) & SPACING (mb-10) & BACKGROUND (bg-card)
     <div className="flex-1 relative w-full h-[400px] mb-10 overflow-hidden rounded-xl border border-border/50 shadow-sm bg-card z-0">
       <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
       
@@ -229,7 +264,7 @@ const TrafficMap = () => {
         </div>
       )}
 
-      {/* LEGEND YANG DIPERBAIKI (Simbol ##) */}
+      {/* LEGEND */}
       <div className="absolute bottom-4 left-4 z-40 bg-card/95 backdrop-blur p-3 rounded-lg border border-border shadow-lg">
         <h4 className="text-[10px] font-bold mb-2 uppercase text-foreground">Traffic Indicators</h4>
         <div className="flex items-center gap-4">
