@@ -1,18 +1,50 @@
 import { Activity, AlertCircle, CheckCircle, Clock, Video, Settings2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
+import Hls from "hls.js";
 
 const StatusPanel = () => {
   const [time, setTime] = useState(new Date());
   const [manualOverride, setManualOverride] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  // HLS stream for Buah Batu CCTV
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const hlsUrl = "https://atcs-dishub.bandung.go.id:1990/Buahbatu/stream.m3u8";
+
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+      });
+      hls.loadSource(hlsUrl);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().catch(() => {});
+      });
+
+      return () => {
+        hls.destroy();
+      };
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      // Safari native HLS support
+      video.src = hlsUrl;
+      video.addEventListener("loadedmetadata", () => {
+        video.play().catch(() => {});
+      });
+    }
   }, []);
 
   const handleOverrideToggle = (checked: boolean) => {
@@ -134,12 +166,13 @@ const StatusPanel = () => {
 
         <Card className="bg-secondary border-glow p-3 space-y-2">
           <div className="relative aspect-video bg-background/50 rounded overflow-hidden border border-primary/30">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <Video className="w-8 h-8 text-primary/50 mx-auto mb-2" />
-                <p className="text-xs text-muted-foreground">CCTV Cam 2: Buah Batu</p>
-              </div>
-            </div>
+            <video
+              ref={videoRef}
+              className="absolute inset-0 w-full h-full object-cover"
+              muted
+              playsInline
+              autoPlay
+            />
             <div className="absolute top-2 left-2 bg-destructive/90 backdrop-blur-sm px-2 py-1 rounded flex items-center gap-1">
               <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
               <span className="text-[10px] font-bold text-white">LIVE</span>
@@ -149,11 +182,9 @@ const StatusPanel = () => {
                 {time.toLocaleTimeString()}
               </span>
             </div>
-            {/* Simulated video feed effect */}
-            <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-50" />
-            <div className="absolute inset-0" style={{
-              backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 212, 255, 0.03) 2px, rgba(0, 212, 255, 0.03) 4px)',
-            }} />
+            <div className="absolute bottom-2 left-2 bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
+              <span className="text-[10px] font-semibold text-foreground">CCTV Cam 2: Buah Batu</span>
+            </div>
           </div>
         </Card>
       </div>
