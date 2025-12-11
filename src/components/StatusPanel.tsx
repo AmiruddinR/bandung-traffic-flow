@@ -1,4 +1,4 @@
-import { Activity, AlertCircle, CheckCircle, Clock, Video, Settings2 } from "lucide-react";
+import { Activity, AlertCircle, CheckCircle, Clock, Video, Settings2, Loader2, ExternalLink } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useEffect, useState, useRef } from "react";
 import { Switch } from "@/components/ui/switch";
@@ -7,9 +7,13 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import Hls from "hls.js";
 
+const HLS_URL = "https://atcs-dishub.bandung.go.id:1990/Buahbatu/stream.m3u8";
+
 const StatusPanel = () => {
   const [time, setTime] = useState(new Date());
   const [manualOverride, setManualOverride] = useState(false);
+  const [streamLoading, setStreamLoading] = useState(true);
+  const [streamError, setStreamError] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -22,28 +26,60 @@ const StatusPanel = () => {
     const video = videoRef.current;
     if (!video) return;
 
-    const hlsUrl = "https://atcs-dishub.bandung.go.id:1990/Buahbatu/stream.m3u8";
+    setStreamLoading(true);
+    setStreamError(false);
+
+    // Timeout for loading - if no response in 10s, show error
+    const timeout = setTimeout(() => {
+      setStreamLoading(false);
+      setStreamError(true);
+    }, 10000);
 
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
       });
-      hls.loadSource(hlsUrl);
+      
+      hls.loadSource(HLS_URL);
       hls.attachMedia(video);
+      
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        clearTimeout(timeout);
+        setStreamLoading(false);
         video.play().catch(() => {});
       });
 
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        if (data.fatal) {
+          clearTimeout(timeout);
+          setStreamLoading(false);
+          setStreamError(true);
+          hls.destroy();
+        }
+      });
+
       return () => {
+        clearTimeout(timeout);
         hls.destroy();
       };
     } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      // Safari native HLS support
-      video.src = hlsUrl;
+      video.src = HLS_URL;
       video.addEventListener("loadedmetadata", () => {
+        clearTimeout(timeout);
+        setStreamLoading(false);
         video.play().catch(() => {});
       });
+      video.addEventListener("error", () => {
+        clearTimeout(timeout);
+        setStreamLoading(false);
+        setStreamError(true);
+      });
+      return () => clearTimeout(timeout);
+    } else {
+      clearTimeout(timeout);
+      setStreamError(true);
+      setStreamLoading(false);
     }
   }, []);
 
@@ -166,16 +202,49 @@ const StatusPanel = () => {
 
         <Card className="bg-secondary border-glow p-3 space-y-2">
           <div className="relative aspect-video bg-background/50 rounded overflow-hidden border border-primary/30">
+            {/* Video element - hidden when error */}
             <video
               ref={videoRef}
-              className="absolute inset-0 w-full h-full object-cover"
+              className={`absolute inset-0 w-full h-full object-cover ${streamError ? 'hidden' : ''}`}
               muted
               playsInline
               autoPlay
             />
+            
+            {/* Loading State */}
+            {streamLoading && !streamError && (
+              <div className="absolute inset-0 flex items-center justify-center bg-background/80">
+                <div className="text-center">
+                  <Loader2 className="w-8 h-8 text-primary mx-auto mb-2 animate-spin" />
+                  <p className="text-xs text-muted-foreground">Menghubungkan ke stream...</p>
+                </div>
+              </div>
+            )}
+            
+            {/* Error Fallback */}
+            {streamError && (
+              <div className="absolute inset-0 flex items-center justify-center bg-background/90">
+                <div className="text-center p-4">
+                  <AlertCircle className="w-8 h-8 text-destructive/70 mx-auto mb-2" />
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Stream tidak dapat dimuat karena pembatasan CORS
+                  </p>
+                  <a
+                    href={HLS_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    Buka stream di tab baru
+                  </a>
+                </div>
+              </div>
+            )}
+            
             <div className="absolute top-2 left-2 bg-destructive/90 backdrop-blur-sm px-2 py-1 rounded flex items-center gap-1">
-              <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-              <span className="text-[10px] font-bold text-white">LIVE</span>
+              <div className={`w-2 h-2 rounded-full bg-white ${streamError ? '' : 'animate-pulse'}`} />
+              <span className="text-[10px] font-bold text-white">{streamError ? 'OFFLINE' : 'LIVE'}</span>
             </div>
             <div className="absolute top-2 right-2 bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
               <span className="text-[10px] font-mono text-foreground">
