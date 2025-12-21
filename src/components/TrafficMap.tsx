@@ -2,21 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { Loader2 } from "lucide-react";
-
-// --- TIPE DATA ---
-type LightColor = "red" | "yellow" | "green";
-
-interface DirectionState {
-  color: LightColor;
-  timer: number;
-}
-
-interface IntersectionState {
-  north: DirectionState;
-  south: DirectionState;
-  east: DirectionState;
-  west: DirectionState;
-}
+import { useTraffic, IntersectionState } from "@/contexts/TrafficContext";
 
 const TrafficMap = () => {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -27,22 +13,10 @@ const TrafficMap = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   
-  // --- STATE TRAFFIC LIGHT (Simulasi) ---
-  const [samsatData, setSamsatData] = useState<IntersectionState>({
-    north: { color: "green", timer: 30 },
-    south: { color: "green", timer: 30 },
-    east: { color: "red", timer: 65 },
-    west: { color: "red", timer: 65 },
-  });
+  // Consume traffic light states from context
+  const { samsatLights, bubatLights } = useTraffic();
 
-  const [bubatData, setBubatData] = useState<IntersectionState>({
-    north: { color: "red", timer: 45 },
-    south: { color: "red", timer: 45 },
-    east: { color: "green", timer: 20 },
-    west: { color: "green", timer: 20 },
-  });
-
-  // --- 1. UPDATE VISUAL DOM ---
+  // --- UPDATE VISUAL DOM ---
   const updateMarkerDOM = (idPrefix: string, data: IntersectionState) => {
     const directions = ["north", "south", "east", "west"] as const;
     
@@ -75,40 +49,13 @@ const TrafficMap = () => {
     });
   };
 
-  // --- 2. SIMULASI LOGIKA ---
+  // Update DOM when light states change
   useEffect(() => {
-    const interval = setInterval(() => {
-      const updatePhase = (prev: IntersectionState): IntersectionState => {
-        const next = { ...prev };
-        (["north", "south", "east", "west"] as const).forEach(dir => {
-            if (next[dir].timer > 0) next[dir].timer -= 1;
-        });
+    updateMarkerDOM("samsat", samsatLights);
+    updateMarkerDOM("bubat", bubatLights);
+  }, [samsatLights, bubatLights]);
 
-        if (next.north.timer === 0) {
-            const isNorthGreen = next.north.color === "green";
-            next.north.color = isNorthGreen ? "red" : "green";
-            next.south.color = isNorthGreen ? "red" : "green";
-            next.east.color = isNorthGreen ? "green" : "red";
-            next.west.color = isNorthGreen ? "green" : "red";
-            next.north.timer = isNorthGreen ? 60 : 30;
-            next.south.timer = isNorthGreen ? 60 : 30;
-            next.east.timer = isNorthGreen ? 30 : 60;
-            next.west.timer = isNorthGreen ? 30 : 60;
-        }
-        return next;
-      };
-      setSamsatData(prev => updatePhase(prev));
-      setBubatData(prev => updatePhase(prev));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    updateMarkerDOM("samsat", samsatData);
-    updateMarkerDOM("bubat", bubatData);
-  }, [samsatData, bubatData]);
-
-  // --- 3. INISIALISASI PETA ---
+  // --- INISIALISASI PETA ---
   useEffect(() => {
     if (map.current) return;
 
