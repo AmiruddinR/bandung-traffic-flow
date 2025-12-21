@@ -1,79 +1,11 @@
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Brain, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react";
-import { useEffect, useState } from "react";
-
-interface LogEntry {
-  id: number;
-  timestamp: string;
-  type: "reward" | "punishment" | "alert";
-  message: string;
-}
+import { useTraffic, LogEntry } from "@/contexts/TrafficContext";
 
 const AIDecisionLog = () => {
-  const [logs, setLogs] = useState<LogEntry[]>([
-    {
-      id: 1,
-      timestamp: "08:45:23",
-      type: "reward",
-      message: "Detected long queue at North Lane → Reward: Added +10s Green Light.",
-    },
-    {
-      id: 2,
-      timestamp: "08:45:18",
-      type: "punishment",
-      message: "South Lane Empty → Punishment: Cut Green Light duration.",
-    },
-    {
-      id: 3,
-      timestamp: "08:45:12",
-      type: "alert",
-      message: "Synchronization Alert: Samsat Full → Holding traffic at Buah Batu (Red Light).",
-    },
-    {
-      id: 4,
-      timestamp: "08:44:58",
-      type: "reward",
-      message: "Traffic flow improved by 23% → Reward: Maintained current timing.",
-    },
-    {
-      id: 5,
-      timestamp: "08:44:45",
-      type: "punishment",
-      message: "East Lane congestion detected → Punishment: Reduced cycle time by 5s.",
-    },
-  ]);
-
-  // Simulate new log entries
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const messages = [
-        { type: "reward" as const, msg: "Detected long queue at North Lane → Reward: Added +10s Green Light." },
-        { type: "punishment" as const, msg: "South Lane Empty → Punishment: Cut Green Light duration." },
-        { type: "alert" as const, msg: "Synchronization Alert: Samsat Full → Holding traffic at Buah Batu (Red Light)." },
-        { type: "reward" as const, msg: "Vehicle density balanced → Reward: Extended green phase by 8s." },
-        { type: "punishment" as const, msg: "Excessive wait time West Lane → Punishment: Priority override applied." },
-        { type: "alert" as const, msg: "Emergency vehicle detected → Alert: Traffic rerouting initiated." },
-        { type: "reward" as const, msg: "Queue cleared efficiently → Reward: Optimal timing maintained." },
-      ];
-
-      const randomMessage = messages[Math.floor(Math.random() * messages.length)];
-      const now = new Date();
-      const timestamp = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
-
-      setLogs((prev) => [
-        {
-          id: Date.now(),
-          timestamp,
-          type: randomMessage.type,
-          message: randomMessage.msg,
-        },
-        ...prev.slice(0, 19), // Keep last 20 entries
-      ]);
-    }, 8000); // New entry every 8 seconds
-
-    return () => clearInterval(interval);
-  }, []);
+  // Consume logs from traffic context
+  const { logs } = useTraffic();
 
   const getIcon = (type: LogEntry["type"]) => {
     switch (type) {

@@ -1,4 +1,4 @@
-import { Activity, AlertCircle, CheckCircle, Clock, Video, Settings2, Loader2, ExternalLink } from "lucide-react";
+import { Activity, AlertCircle, CheckCircle, Clock, Video, Settings2, Loader2, ExternalLink, Cpu, Gauge } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useEffect, useState, useRef } from "react";
 import { Switch } from "@/components/ui/switch";
@@ -6,15 +6,28 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import Hls from "hls.js";
+import { useTraffic, SystemMode, DensityLevel } from "@/contexts/TrafficContext";
 
 const HLS_URL = "https://atcs-dishub.bandung.go.id:1990/Buahbatu/stream.m3u8";
 
 const StatusPanel = () => {
   const [time, setTime] = useState(new Date());
-  const [manualOverride, setManualOverride] = useState(false);
   const [streamLoading, setStreamLoading] = useState(true);
   const [streamError, setStreamError] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Consume from traffic context
+  const {
+    systemMode,
+    setSystemMode,
+    samsatMetrics,
+    bubatMetrics,
+    samsatDensity,
+    bubatDensity,
+    triggerManualOverride,
+    resetToAI,
+    manualOverride,
+  } = useTraffic();
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -84,7 +97,12 @@ const StatusPanel = () => {
   }, []);
 
   const handleOverrideToggle = (checked: boolean) => {
-    setManualOverride(checked);
+    if (checked) {
+      // Enable manual mode but don't trigger any color yet
+      setSystemMode("manual");
+    } else {
+      resetToAI();
+    }
     toast({
       title: checked ? "Manual Override Enabled" : "Manual Override Disabled",
       description: checked
@@ -95,6 +113,7 @@ const StatusPanel = () => {
   };
 
   const handleForceRed = () => {
+    triggerManualOverride("red");
     toast({
       title: "Force Red Activated",
       description: "All traffic lights set to RED. Emergency stop initiated.",
@@ -103,6 +122,7 @@ const StatusPanel = () => {
   };
 
   const handleForceGreen = () => {
+    triggerManualOverride("green");
     toast({
       title: "Force Green Activated",
       description: "Selected intersection set to GREEN. Use with caution.",
@@ -110,32 +130,34 @@ const StatusPanel = () => {
   };
 
   const handleResetAI = () => {
-    setManualOverride(false);
+    resetToAI();
     toast({
       title: "AI Mode Reset",
       description: "Adaptive AI control restored. System recalibrating...",
     });
   };
+
+  // Dynamic traffic data from context
   const trafficData = [
     {
       id: 1,
       location: "Simpang Samsat Kiaracondong",
-      status: "flowing",
-      vehicles: 45,
-      avgSpeed: "35 km/h",
-      waitTime: "12s",
+      status: samsatDensity,
+      vehicles: samsatMetrics.vehicles,
+      avgSpeed: samsatMetrics.avgSpeed,
+      waitTime: samsatMetrics.waitTime,
     },
     {
       id: 2,
       location: "Simpang Buah Batu",
-      status: "moderate",
-      vehicles: 67,
-      avgSpeed: "22 km/h",
-      waitTime: "28s",
+      status: bubatDensity,
+      vehicles: bubatMetrics.vehicles,
+      avgSpeed: bubatMetrics.avgSpeed,
+      waitTime: bubatMetrics.waitTime,
     },
   ];
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: DensityLevel) => {
     switch (status) {
       case "flowing":
         return "text-success";
@@ -148,7 +170,7 @@ const StatusPanel = () => {
     }
   };
 
-  const getStatusIcon = (status: string) => {
+  const getStatusIcon = (status: DensityLevel) => {
     switch (status) {
       case "flowing":
         return <CheckCircle className="w-5 h-5" />;
@@ -161,11 +183,52 @@ const StatusPanel = () => {
     }
   };
 
+  const getModeLabel = (mode: SystemMode) => {
+    switch (mode) {
+      case "default": return "Default (Fixed)";
+      case "ml": return "ML Optimized";
+      case "manual": return "Manual Override";
+    }
+  };
+
   return (
     <aside className="w-80 bg-card border-l border-border/50 p-6 space-y-6 overflow-y-auto">
       <div>
         <h2 className="text-xl font-bold text-foreground mb-2">Real-Time Status</h2>
         <p className="text-sm text-muted-foreground">Live traffic monitoring</p>
+      </div>
+
+      {/* Mode Selector */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Cpu className="w-4 h-4 text-primary" />
+          <h3 className="text-sm font-bold text-foreground">Control Mode</h3>
+        </div>
+        <div className="bg-secondary/50 border border-border/30 rounded-lg p-3">
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant={systemMode === "default" ? "default" : "outline"}
+              className="flex-1 text-xs"
+              onClick={() => setSystemMode("default")}
+            >
+              <Gauge className="w-3 h-3 mr-1" />
+              Default
+            </Button>
+            <Button
+              size="sm"
+              variant={systemMode === "ml" ? "default" : "outline"}
+              className="flex-1 text-xs"
+              onClick={() => setSystemMode("ml")}
+            >
+              <Cpu className="w-3 h-3 mr-1" />
+              ML
+            </Button>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-2 text-center">
+            Active: <span className="font-semibold text-primary">{getModeLabel(systemMode)}</span>
+          </p>
+        </div>
       </div>
 
       {/* CCTV Feeds Section */}
@@ -308,6 +371,10 @@ const StatusPanel = () => {
             </span>
           </div>
           <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Control Mode</span>
+            <span className="text-xs font-semibold text-primary">{getModeLabel(systemMode)}</span>
+          </div>
+          <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">Sensors</span>
             <span className="text-xs font-semibold text-success">2/2 Online</span>
           </div>
@@ -332,12 +399,12 @@ const StatusPanel = () => {
             </Label>
             <Switch
               id="override-switch"
-              checked={manualOverride}
+              checked={systemMode === "manual"}
               onCheckedChange={handleOverrideToggle}
             />
           </div>
 
-          {manualOverride && (
+          {systemMode === "manual" && (
             <div className="space-y-2 pt-2 border-t border-border/30 animate-fade-in">
               <p className="text-[10px] text-destructive font-semibold uppercase mb-2">
                 ⚠ Emergency Controls Active
@@ -368,9 +435,9 @@ const StatusPanel = () => {
             </div>
           )}
 
-          {!manualOverride && (
+          {systemMode !== "manual" && (
             <p className="text-[10px] text-muted-foreground italic">
-              AI adaptive control is active
+              {systemMode === "ml" ? "AI adaptive control is active" : "Fixed cycle control is active"}
             </p>
           )}
         </div>
