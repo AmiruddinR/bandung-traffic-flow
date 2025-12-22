@@ -6,6 +6,9 @@ export type SystemMode = "default" | "ml" | "manual";
 export type DensityLevel = "flowing" | "moderate" | "congested";
 export type ManualOverrideType = "red" | "green" | null;
 
+// Phase-based state machine
+export type TrafficPhase = "NS_GREEN" | "NS_YELLOW" | "EW_GREEN" | "EW_YELLOW";
+
 export interface DirectionState {
   color: LightColor;
   timer: number;
@@ -29,6 +32,13 @@ export interface LogEntry {
   timestamp: string;
   type: "reward" | "punishment" | "alert";
   message: string;
+}
+
+// Phase state for each intersection
+interface PhaseState {
+  phase: TrafficPhase;
+  timer: number;
+  greenDuration: number; // Dynamic duration for current green phase
 }
 
 interface TrafficContextType {
@@ -67,22 +77,59 @@ const getTimestamp = () => {
 
 const calculateDensity = (vehicles: number): DensityLevel => {
   if (vehicles < 40) return "flowing";
-  if (vehicles <= 70) return "moderate";
+  if (vehicles <= 80) return "moderate";
   return "congested";
 };
 
-const getGreenDuration = (density: DensityLevel, isML: boolean): number => {
-  if (!isML) return 30; // Default fixed cycle
-  switch (density) {
-    case "flowing": return 20;
-    case "moderate": return 30;
-    case "congested": return 45;
+// Adaptive green duration based on vehicle count
+const getAdaptiveGreenDuration = (vehicles: number, isML: boolean): number => {
+  if (!isML) return 30; // Default fixed cycle: 30s
+  if (vehicles < 40) return 20;  // Sepi
+  if (vehicles <= 80) return 40; // Sedang
+  return 60; // Macet
+};
+
+const YELLOW_DURATION = 5; // Fixed 5s yellow
+
+// Convert phase to light colors
+const phaseToLights = (phase: TrafficPhase, timer: number): IntersectionState => {
+  switch (phase) {
+    case "NS_GREEN":
+      return {
+        north: { color: "green", timer },
+        south: { color: "green", timer },
+        east: { color: "red", timer },
+        west: { color: "red", timer },
+      };
+    case "NS_YELLOW":
+      return {
+        north: { color: "yellow", timer },
+        south: { color: "yellow", timer },
+        east: { color: "red", timer },
+        west: { color: "red", timer },
+      };
+    case "EW_GREEN":
+      return {
+        north: { color: "red", timer },
+        south: { color: "red", timer },
+        east: { color: "green", timer },
+        west: { color: "green", timer },
+      };
+    case "EW_YELLOW":
+      return {
+        north: { color: "red", timer },
+        south: { color: "red", timer },
+        east: { color: "yellow", timer },
+        west: { color: "yellow", timer },
+      };
   }
 };
 
-const getRedDuration = (density: DensityLevel, isML: boolean, holdingTraffic: boolean): number => {
-  const base = isML ? (density === "flowing" ? 40 : density === "moderate" ? 50 : 60) : 60;
-  return holdingTraffic ? base + 15 : base;
+// Get next phase in sequence
+const getNextPhase = (current: TrafficPhase): TrafficPhase => {
+  const sequence: TrafficPhase[] = ["NS_GREEN", "NS_YELLOW", "EW_GREEN", "EW_YELLOW"];
+  const idx = sequence.indexOf(current);
+  return sequence[(idx + 1) % 4];
 };
 
 // --- PROVIDER ---
@@ -90,28 +137,22 @@ export const TrafficProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [systemMode, setSystemModeInternal] = useState<SystemMode>("ml");
   const [manualOverride, setManualOverride] = useState<ManualOverrideType>(null);
   
-  // Traffic light states
-  const [samsatLights, setSamsatLights] = useState<IntersectionState>({
-    north: { color: "green", timer: 30 },
-    south: { color: "green", timer: 30 },
-    east: { color: "red", timer: 65 },
-    west: { color: "red", timer: 65 },
-  });
-
-  const [bubatLights, setBubatLights] = useState<IntersectionState>({
-    north: { color: "red", timer: 45 },
-    south: { color: "red", timer: 45 },
-    east: { color: "green", timer: 20 },
-    west: { color: "green", timer: 20 },
-  });
-
-  // Simulated vehicle counts (fluctuating)
-  const [samsatVehicles, setSamsatVehicles] = useState(45);
-  const [bubatVehicles, setBubatVehicles] = useState(67);
+  // Simulated vehicle counts (mock sensors)
+  const [samsatVehicles, setSamsatVehicles] = useState(55);
+  const [bubatVehicles, setBubatVehicles] = useState(45);
   
-  // Previous queue lengths for reward/punishment
-  const prevSamsatQueue = useRef(45);
-  const prevBubatQueue = useRef(67);
+  // Phase states for each intersection
+  const [samsatPhase, setSamsatPhase] = useState<PhaseState>({
+    phase: "NS_GREEN",
+    timer: 30,
+    greenDuration: 30,
+  });
+  
+  const [bubatPhase, setBubatPhase] = useState<PhaseState>({
+    phase: "EW_GREEN",
+    timer: 30,
+    greenDuration: 30,
+  });
 
   // AI Logs
   const [logs, setLogs] = useState<LogEntry[]>([
@@ -119,7 +160,7 @@ export const TrafficProvider: React.FC<{ children: React.ReactNode }> = ({ child
       id: 1,
       timestamp: getTimestamp(),
       type: "alert",
-      message: "System initialized in ML Optimized mode.",
+      message: "System initialized. Rule-Based AI active.",
     },
   ]);
 
@@ -127,7 +168,11 @@ export const TrafficProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const samsatDensity = calculateDensity(samsatVehicles);
   const bubatDensity = calculateDensity(bubatVehicles);
 
-  // Derived metrics
+  // Convert phase states to light states for rendering
+  const samsatLights = phaseToLights(samsatPhase.phase, samsatPhase.timer);
+  const bubatLights = phaseToLights(bubatPhase.phase, bubatPhase.timer);
+
+  // Derived metrics based on density
   const samsatMetrics: TrafficMetrics = {
     vehicles: samsatVehicles,
     avgSpeed: samsatDensity === "flowing" ? "38 km/h" : samsatDensity === "moderate" ? "25 km/h" : "12 km/h",
@@ -144,7 +189,7 @@ export const TrafficProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const addLog = useCallback((type: LogEntry["type"], message: string) => {
     setLogs(prev => [
       { id: Date.now(), timestamp: getTimestamp(), type, message },
-      ...prev.slice(0, 29), // Keep last 30 entries
+      ...prev.slice(0, 49), // Keep last 50 entries
     ]);
   }, []);
 
@@ -161,17 +206,6 @@ export const TrafficProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const triggerManualOverride = useCallback((type: "red" | "green") => {
     setSystemModeInternal("manual");
     setManualOverride(type);
-    
-    const allColor: LightColor = type;
-    const manualState: IntersectionState = {
-      north: { color: allColor, timer: 0 },
-      south: { color: allColor, timer: 0 },
-      east: { color: allColor, timer: 0 },
-      west: { color: allColor, timer: 0 },
-    };
-    
-    setSamsatLights(manualState);
-    setBubatLights(manualState);
     addLog("alert", `Manual Override: All lights forced to ${type.toUpperCase()}.`);
   }, [addLog]);
 
@@ -179,167 +213,174 @@ export const TrafficProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setSystemModeInternal("ml");
     setManualOverride(null);
     
-    // Reset to initial ML states
-    setSamsatLights({
-      north: { color: "green", timer: 30 },
-      south: { color: "green", timer: 30 },
-      east: { color: "red", timer: 65 },
-      west: { color: "red", timer: 65 },
+    // Reset phases with fresh adaptive durations
+    const samsatGreen = getAdaptiveGreenDuration(samsatVehicles, true);
+    const bubatGreen = getAdaptiveGreenDuration(bubatVehicles, true);
+    
+    setSamsatPhase({
+      phase: "NS_GREEN",
+      timer: samsatGreen,
+      greenDuration: samsatGreen,
     });
-    setBubatLights({
-      north: { color: "red", timer: 45 },
-      south: { color: "red", timer: 45 },
-      east: { color: "green", timer: 20 },
-      west: { color: "green", timer: 20 },
+    setBubatPhase({
+      phase: "EW_GREEN",
+      timer: bubatGreen,
+      greenDuration: bubatGreen,
     });
     
     addLog("alert", "AI Mode restored. System recalibrating...");
-  }, [addLog]);
+  }, [addLog, samsatVehicles, bubatVehicles]);
 
-  // --- TRAFFIC SIMULATION (Vehicle count fluctuation) ---
+  // --- MOCK SENSORS: Randomize vehicle counts every 5 seconds ---
   useEffect(() => {
     if (systemMode === "manual") return;
 
     const interval = setInterval(() => {
-      // Simulate vehicle count changes
       setSamsatVehicles(prev => {
-        const change = Math.floor(Math.random() * 21) - 10; // -10 to +10
-        return Math.max(15, Math.min(95, prev + change));
+        const change = Math.floor(Math.random() * 31) - 15; // -15 to +15
+        return Math.max(10, Math.min(120, prev + change));
       });
       setBubatVehicles(prev => {
-        const change = Math.floor(Math.random() * 21) - 10;
-        return Math.max(15, Math.min(95, prev + change));
+        const change = Math.floor(Math.random() * 31) - 15;
+        return Math.max(10, Math.min(120, prev + change));
       });
-    }, 5000); // Update every 5 seconds
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [systemMode]);
 
-  // --- MAIN TRAFFIC LIGHT LOGIC ---
+  // --- MAIN PHASE-BASED TRAFFIC LIGHT LOGIC ---
   useEffect(() => {
     if (systemMode === "manual") return;
 
     const isML = systemMode === "ml";
 
     const interval = setInterval(() => {
-      // Update Samsat lights
-      setSamsatLights(prev => {
-        const next = { ...prev };
-        const dirs = ["north", "south", "east", "west"] as const;
+      // Update Samsat phase
+      setSamsatPhase(prev => {
+        const newTimer = prev.timer - 1;
         
-        // Decrement timers
-        dirs.forEach(dir => {
-          if (next[dir].timer > 0) next[dir].timer -= 1;
-        });
-
-        // Phase transition when timer hits 0
-        if (next.north.timer === 0) {
-          const isNorthGreen = next.north.color === "green";
-          const newDensity = calculateDensity(samsatVehicles);
+        // Timer hits 0 -> transition to next phase
+        if (newTimer <= 0) {
+          const nextPhase = getNextPhase(prev.phase);
           
-          // Calculate new durations based on mode
-          const greenDur = getGreenDuration(newDensity, isML);
-          const redDur = getRedDuration(newDensity, isML, false);
-
-          next.north.color = isNorthGreen ? "red" : "green";
-          next.south.color = isNorthGreen ? "red" : "green";
-          next.east.color = isNorthGreen ? "green" : "red";
-          next.west.color = isNorthGreen ? "green" : "red";
+          // Determine duration for next phase
+          let nextDuration: number;
+          let nextGreenDuration = prev.greenDuration;
           
-          next.north.timer = isNorthGreen ? redDur : greenDur;
-          next.south.timer = isNorthGreen ? redDur : greenDur;
-          next.east.timer = isNorthGreen ? greenDur : redDur;
-          next.west.timer = isNorthGreen ? greenDur : redDur;
-
-          // Log ML decision
-          if (isML && !isNorthGreen) {
-            addLog("reward", `Samsat N-S green extended to ${greenDur}s (density: ${newDensity}).`);
+          if (nextPhase === "NS_GREEN" || nextPhase === "EW_GREEN") {
+            // Entering green phase: calculate adaptive duration
+            nextGreenDuration = getAdaptiveGreenDuration(samsatVehicles, isML);
+            nextDuration = nextGreenDuration;
+            
+            // Log AI decision
+            if (isML) {
+              const direction = nextPhase === "NS_GREEN" ? "N-S" : "E-W";
+              addLog("reward", `Samsat ${direction}: Green set to ${nextDuration}s (${samsatVehicles} vehicles, ${samsatDensity})`);
+            }
+          } else {
+            // Yellow phase: fixed 5s
+            nextDuration = YELLOW_DURATION;
           }
+          
+          return {
+            phase: nextPhase,
+            timer: nextDuration,
+            greenDuration: nextGreenDuration,
+          };
         }
-
-        return next;
+        
+        return { ...prev, timer: newTimer };
       });
 
-      // Update Bubat lights with Samsat coordination
-      setBubatLights(prev => {
-        const next = { ...prev };
-        const dirs = ["north", "south", "east", "west"] as const;
+      // Update Bubat phase with Samsat coordination
+      setBubatPhase(prev => {
+        const newTimer = prev.timer - 1;
         
-        dirs.forEach(dir => {
-          if (next[dir].timer > 0) next[dir].timer -= 1;
-        });
-
-        if (next.north.timer === 0) {
-          const isNorthGreen = next.north.color === "green";
-          const newDensity = calculateDensity(bubatVehicles);
+        if (newTimer <= 0) {
+          const nextPhase = getNextPhase(prev.phase);
           
-          // Check if Samsat is congested - hold Bubat traffic
-          const holdingTraffic = isML && samsatDensity === "congested";
+          let nextDuration: number;
+          let nextGreenDuration = prev.greenDuration;
           
-          const greenDur = getGreenDuration(newDensity, isML);
-          const redDur = getRedDuration(newDensity, isML, holdingTraffic);
-
-          next.north.color = isNorthGreen ? "red" : "green";
-          next.south.color = isNorthGreen ? "red" : "green";
-          next.east.color = isNorthGreen ? "green" : "red";
-          next.west.color = isNorthGreen ? "green" : "red";
-          
-          next.north.timer = isNorthGreen ? redDur : greenDur;
-          next.south.timer = isNorthGreen ? redDur : greenDur;
-          next.east.timer = isNorthGreen ? greenDur : redDur;
-          next.west.timer = isNorthGreen ? greenDur : redDur;
-
-          // Log coordination decision
-          if (holdingTraffic) {
-            addLog("alert", `Coordination: Samsat congested → Bubat red extended +15s (holding traffic).`);
-          } else if (isML && !isNorthGreen) {
-            addLog("reward", `Bubat E-W green set to ${greenDur}s (density: ${newDensity}).`);
+          if (nextPhase === "NS_GREEN" || nextPhase === "EW_GREEN") {
+            nextGreenDuration = getAdaptiveGreenDuration(bubatVehicles, isML);
+            
+            // Inter-intersection coordination: if Samsat is congested, extend red at Bubat
+            if (isML && samsatDensity === "congested" && nextPhase === "NS_GREEN") {
+              // Delay green to hold traffic
+              nextGreenDuration = Math.max(20, nextGreenDuration - 10);
+              addLog("alert", `Coordination: Samsat congested → Bubat N-S reduced to ${nextGreenDuration}s (holding traffic)`);
+            } else if (isML) {
+              const direction = nextPhase === "NS_GREEN" ? "N-S" : "E-W";
+              addLog("reward", `Bubat ${direction}: Green set to ${nextGreenDuration}s (${bubatVehicles} vehicles, ${bubatDensity})`);
+            }
+            
+            nextDuration = nextGreenDuration;
+          } else {
+            nextDuration = YELLOW_DURATION;
           }
+          
+          return {
+            phase: nextPhase,
+            timer: nextDuration,
+            greenDuration: nextGreenDuration,
+          };
         }
-
-        return next;
+        
+        return { ...prev, timer: newTimer };
       });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [systemMode, samsatVehicles, bubatVehicles, samsatDensity, addLog]);
+  }, [systemMode, samsatVehicles, bubatVehicles, samsatDensity, bubatDensity, addLog]);
 
-  // --- REWARD/PUNISHMENT LOGIC ---
+  // --- REWARD/PUNISHMENT LOGIC based on vehicle changes ---
+  const prevSamsatVehicles = useRef(samsatVehicles);
+  const prevBubatVehicles = useRef(bubatVehicles);
+
   useEffect(() => {
     if (systemMode !== "ml") return;
 
     const interval = setInterval(() => {
-      // Compare with previous queue lengths
-      const samsatDelta = prevSamsatQueue.current - samsatVehicles;
-      const bubatDelta = prevBubatQueue.current - bubatVehicles;
+      const samsatDelta = prevSamsatVehicles.current - samsatVehicles;
+      const bubatDelta = prevBubatVehicles.current - bubatVehicles;
 
-      if (samsatDelta > 5) {
-        const percent = Math.round((samsatDelta / prevSamsatQueue.current) * 100);
-        addLog("reward", `Samsat queue reduced by ${percent}% → Timing strategy effective.`);
-      } else if (samsatDelta < -8) {
-        addLog("punishment", `Samsat queue increased → Adjusting phase timing...`);
+      if (samsatDelta > 10) {
+        const percent = Math.round((samsatDelta / prevSamsatVehicles.current) * 100);
+        addLog("reward", `Samsat: Traffic reduced by ${percent}% → Timing effective`);
+      } else if (samsatDelta < -15) {
+        addLog("punishment", `Samsat: Traffic spike detected → Recalculating...`);
       }
 
-      if (bubatDelta > 5) {
-        const percent = Math.round((bubatDelta / prevBubatQueue.current) * 100);
-        addLog("reward", `Buah Batu flow improved by ${percent}% → Optimal timing maintained.`);
-      } else if (bubatDelta < -8) {
-        addLog("punishment", `Buah Batu congestion rising → Recalculating cycles...`);
+      if (bubatDelta > 10) {
+        const percent = Math.round((bubatDelta / prevBubatVehicles.current) * 100);
+        addLog("reward", `Bubat: Traffic reduced by ${percent}% → Optimal timing`);
+      } else if (bubatDelta < -15) {
+        addLog("punishment", `Bubat: Congestion rising → Adjusting cycles...`);
       }
 
-      prevSamsatQueue.current = samsatVehicles;
-      prevBubatQueue.current = bubatVehicles;
-    }, 8000);
+      prevSamsatVehicles.current = samsatVehicles;
+      prevBubatVehicles.current = bubatVehicles;
+    }, 10000);
 
     return () => clearInterval(interval);
   }, [systemMode, samsatVehicles, bubatVehicles, addLog]);
+
+  // Manual override light states
+  const getManualLights = (color: LightColor): IntersectionState => ({
+    north: { color, timer: 0 },
+    south: { color, timer: 0 },
+    east: { color, timer: 0 },
+    west: { color, timer: 0 },
+  });
 
   const value: TrafficContextType = {
     systemMode,
     setSystemMode,
     manualOverride,
-    samsatLights,
-    bubatLights,
+    samsatLights: manualOverride ? getManualLights(manualOverride) : samsatLights,
+    bubatLights: manualOverride ? getManualLights(manualOverride) : bubatLights,
     samsatDensity,
     bubatDensity,
     samsatMetrics,
